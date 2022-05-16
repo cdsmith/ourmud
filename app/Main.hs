@@ -8,18 +8,11 @@ module Main where
 
 import Control.Concurrent.STM
 import Control.Monad
-import Data.Aeson
-import qualified Data.ByteString.Lazy as ByteString
+import Data.Char (toLower)
 import Model
 import Sample
 import System.IO
 import World
-
-writeWorld :: FilePath -> World Snapshot -> IO ()
-writeWorld path = ByteString.writeFile path . encode
-
-readWorld :: FilePath -> IO (Maybe (World Snapshot))
-readWorld path = decode <$> ByteString.readFile path
 
 main :: IO ()
 main = do
@@ -33,6 +26,7 @@ runClient worldObj = do
   player <- atomically $ readTVar playerObj.var
   putStrLn $ "Welcome, " ++ player.name
 
+  look playerObj
   clientLoop worldObj playerObj
 
 login :: Obj Live World -> IO (Obj Live Player)
@@ -43,20 +37,36 @@ login worldObj = atomically $ do
 
 clientLoop :: Obj Live World -> Obj Live Player -> IO ()
 clientLoop worldObj playerObj = do
-  look playerObj
+  putStrLn ""
   putStr "> "
   hFlush stdout
   cmd <- getLine
 
+  let continue = clientLoop worldObj playerObj
   case words cmd of
-    ["n"] -> go playerObj North >> clientLoop worldObj playerObj
-    ["north"] -> go playerObj North >> clientLoop worldObj playerObj
-    ["s"] -> go playerObj South >> clientLoop worldObj playerObj
-    ["south"] -> go playerObj South >> clientLoop worldObj playerObj
-    ["e"] -> go playerObj East >> clientLoop worldObj playerObj
-    ["east"] -> go playerObj East >> clientLoop worldObj playerObj
-    ["w"] -> go playerObj West >> clientLoop worldObj playerObj
-    ["west"] -> go playerObj West >> clientLoop worldObj playerObj
+    [] -> continue
+    ["l"] -> look playerObj >> continue
+    ["look"] -> look playerObj >> continue
+    ["n"] -> go playerObj North >> continue
+    ["north"] -> go playerObj North >> continue
+    ["s"] -> go playerObj South >> continue
+    ["south"] -> go playerObj South >> continue
+    ["e"] -> go playerObj East >> continue
+    ["east"] -> go playerObj East >> continue
+    ["w"] -> go playerObj West >> continue
+    ["west"] -> go playerObj West >> continue
+    ["i"] -> inventory playerObj >> continue
+    ["inv"] -> inventory playerObj >> continue
+    ["inventory"] -> inventory playerObj >> continue
+    ("g" : item) -> takeItem playerObj (unwords item) >> continue
+    ("get" : item) -> takeItem playerObj (unwords item) >> continue
+    ("t" : item) -> takeItem playerObj (unwords item) >> continue
+    ("take" : item) -> takeItem playerObj (unwords item) >> continue
+    ("pick" : "up" : item) -> takeItem playerObj (unwords item) >> continue
+    ("d" : item) -> dropItem playerObj (unwords item) >> continue
+    ("drop" : item) -> dropItem playerObj (unwords item) >> continue
+    ("p" : item) -> dropItem playerObj (unwords item) >> continue
+    ("put" : item) -> dropItem playerObj (unwords item) >> continue
     ["q"] -> quit worldObj
     ["quit"] -> quit worldObj
     _ -> do
@@ -78,7 +88,6 @@ look playerObj = do
     people <- mapM (\p -> readTVar p.var) otherPlayers
     items <- mapM (\i -> readTVar i.var) room.items
     return (room, people, items)
-  putStrLn ""
   putStrLn $ "You are in " ++ room.name
   putStrLn $ room.description
   forM_ room.exits $ \exit -> do
@@ -101,4 +110,50 @@ go playerObj dir = do
       (exit : _) -> do
         setPlayerLocation playerObj exit.destination
         return True
-  unless success $ putStrLn "You can't go that way"
+  case success of
+    True -> look playerObj
+    False -> putStrLn "You can't go that way!"
+
+inventory :: Obj Live Player -> IO ()
+inventory playerObj = do
+  items <- atomically $ do
+    player <- readTVar playerObj.var
+    traverse (\i -> readTVar i.var) player.inventory
+  forM_ items $ \i -> putStrLn (i.name ++ " is in your inventory.")
+
+takeItem :: Obj Live Player -> String -> IO ()
+takeItem playerObj itemName = do
+  result <- atomically $ do
+    player <- readTVar playerObj.var
+    let hereObj = player.location
+    here <- readTVar hereObj.var
+    items <- zip here.items <$> traverse (\i -> readTVar i.var) here.items
+    let matches = filter (itemGoesByName itemName . snd) items
+    case matches of
+      [] -> return Nothing
+      ((itemObj, item) : _) -> do
+        success <- pickUp playerObj itemObj
+        if success then return (Just item) else return Nothing
+  case result of
+    Nothing -> putStrLn "You can't find that item!"
+    Just item -> putStrLn ("You pick up " ++ item.name)
+
+dropItem :: Obj Live Player -> String -> IO ()
+dropItem playerObj itemName = do
+  result <- atomically $ do
+    player <- readTVar playerObj.var
+    items <- zip player.inventory <$> traverse (\i -> readTVar i.var) player.inventory
+    let matches = filter (itemGoesByName itemName . snd) items
+    case matches of
+      [] -> return Nothing
+      ((itemObj, item) : _) -> do
+        success <- putDown playerObj itemObj
+        if success then return (Just item) else return Nothing
+  case result of
+    Nothing -> putStrLn "You aren't carrying that item!"
+    Just item -> putStrLn ("You drop " ++ item.name)
+
+itemGoesByName :: String -> Item l -> Bool
+itemGoesByName itemName item =
+  map toLower item.name == map toLower itemName
+    || any (\nn -> map toLower nn == map toLower itemName) item.nicknames

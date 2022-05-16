@@ -66,6 +66,7 @@ sampleWorld =
             [ ( bowKey,
                 Item
                   { name = "Bow of Power",
+                    nicknames = ["bow"],
                     description = "This is an item.",
                     location = (Left colinKey)
                   }
@@ -73,6 +74,7 @@ sampleWorld =
               ( crystalKey,
                 Item
                   { name = "Corrupted Crystal",
+                    nicknames = ["crystal"],
                     description = "A crystal pulses with power on the ground.",
                     location = (Right vestibuleKey)
                   }

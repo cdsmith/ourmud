@@ -83,8 +83,8 @@ instance FromJSON (Room Snapshot) where
     Room <$> v .: "name"
       <*> v .: "description"
       <*> v .: "exits"
-      <*> (v .: "items")
-      <*> (v .: "players")
+      <*> v .: "items"
+      <*> v .: "players"
 
 snapshotRoom :: Room Live -> Room Snapshot
 snapshotRoom room =
@@ -153,6 +153,7 @@ instantiateExit world exit =
 
 data Item l = Item
   { name :: String,
+    nicknames :: [String],
     description :: String,
     location :: Either (Obj l Player) (Obj l Room)
   }
@@ -163,6 +164,7 @@ instance ToJSON (Item Snapshot) where
   toJSON item =
     object
       [ "name" .= item.name,
+        "nicknames" .= item.nicknames,
         "description" .= item.description,
         "location" .= item.location
       ]
@@ -170,8 +172,9 @@ instance ToJSON (Item Snapshot) where
 instance FromJSON (Item Snapshot) where
   parseJSON = withObject "Item" $ \v ->
     Item <$> v .: "name"
+      <*> v .: "nicknames"
       <*> v .: "description"
-      <*> (v .: "location")
+      <*> v .: "location"
 
 snapshotItem :: Item Live -> Item Snapshot
 snapshotItem item =
@@ -209,8 +212,8 @@ instance FromJSON (Player Snapshot) where
   parseJSON = withObject "Player" $ \v ->
     Player <$> v .: "name"
       <*> v .: "description"
-      <*> (v .: "location")
-      <*> (v .: "inventory")
+      <*> v .: "location"
+      <*> v .: "inventory"
 
 snapshotPlayer :: Player Live -> Player Snapshot
 snapshotPlayer player =
