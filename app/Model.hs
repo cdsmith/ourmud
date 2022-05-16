@@ -32,7 +32,6 @@ import qualified Data.Map.Strict as Map
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import System.IO (fixIO)
-import System.IO.Unsafe (unsafeInterleaveIO)
 
 data Liveness = Snapshot | Live
 
@@ -260,7 +259,7 @@ instantiateWorld snap = do
   where
     go :: World Live -> IO (World Live)
     go world = do
-        r <- traverse (unsafeInterleaveIO . newTVarIO . instantiate world) snap.rooms
-        p <- traverse (unsafeInterleaveIO . newTVarIO . instantiate world) snap.players
-        i <- traverse (unsafeInterleaveIO . newTVarIO . instantiate world) snap.items
+        r <- traverse (newTVarIO . instantiate world) snap.rooms
+        p <- traverse (newTVarIO . instantiate world) snap.players
+        i <- traverse (newTVarIO . instantiate world) snap.items
         return (World {rooms = r, players = p, items = i})
