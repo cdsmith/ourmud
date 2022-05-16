@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -7,61 +8,79 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
 module Model where
 
 import Control.Concurrent.STM
 import Data.Aeson
-import Data.Functor.Identity
+import Data.Bifunctor
+import Data.Bitraversable
 import Data.Kind (Type)
 import Data.Map (Map)
+import qualified Data.Map.Lazy as Map
 import Data.UUID
+import Control.Monad
 
-newtype Ref (a :: (Type -> Type) -> Type) = Ref {guid :: UUID}
-  deriving stock (Eq, Ord, Show)
-  deriving newtype (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
+data Liveness = Snapshot | Live
 
-data Room f = Room
-  { guid :: Ref Room,
-    name :: String,
+type family Mutable (l :: Liveness) (a :: Type) :: Type where
+  Mutable 'Snapshot a = a
+  Mutable 'Live a = TVar a
+
+data family Obj (l :: Liveness) (a :: Liveness -> Type)
+
+data instance Obj Snapshot a = Ref {guid :: UUID}
+
+data instance Obj Live a = Obj {guid :: UUID, var :: TVar (a Live)}
+
+deriving instance Show (Obj Snapshot a)
+
+instance ToJSON (Obj Snapshot a) where
+    toJSON (Ref a) = toJSON a
+
+instance FromJSON (Obj Snapshot a) where
+    parseJSON val = Ref <$> parseJSON val
+
+data Room l = Room
+  { name :: String,
     description :: String,
-    exits :: f [Exit],
-    items :: f [Ref Item],
-    players :: f [Ref Player]
+    exits :: [Exit l],
+    items :: [Obj l Item],
+    players :: [Obj l Player]
   }
 
-deriving instance Show (Room Identity)
+deriving instance Show (Room Snapshot)
 
-instance ToJSON (Room Identity) where
+instance ToJSON (Room Snapshot) where
   toJSON room =
     object
-      [ "guid" .= room.guid,
-        "name" .= room.name,
+      [ "name" .= room.name,
         "description" .= room.description,
         "exits" .= room.exits,
-        "items" .= map (.guid) (runIdentity room.items),
-        "players" .= map (.guid) (runIdentity room.players)
+        "items" .= map (.guid) room.items,
+        "players" .= map (.guid) room.players
       ]
 
-instance FromJSON (Room Identity) where
+instance FromJSON (Room Snapshot) where
   parseJSON = withObject "Room" $ \v ->
-    Room <$> v .: "guid"
-      <*> v .: "name"
+    Room <$> v .: "name"
       <*> v .: "description"
       <*> v .: "exits"
-      <*> (Identity <$> v .: "items")
-      <*> (Identity <$> v .: "players")
+      <*> (v .: "items")
+      <*> (v .: "players")
 
-data Exit = Exit
+data Exit l = Exit
   { name :: String,
     direction :: Maybe Direction,
     description :: String,
-    destination :: Ref Room
+    destination :: Obj l Room
   }
-  deriving (Show)
 
-instance ToJSON Exit where
+deriving instance Show (Exit Snapshot)
+
+instance ToJSON (Exit Snapshot) where
   toJSON exit =
     object
       [ "name" .= exit.name,
@@ -70,65 +89,59 @@ instance ToJSON Exit where
         "destination" .= exit.destination
       ]
 
-instance FromJSON Exit where
+instance FromJSON (Exit Snapshot) where
   parseJSON = withObject "Exit" $ \v ->
     Exit <$> v .: "name"
       <*> v .: "direction"
       <*> v .: "description"
       <*> v .: "destination"
 
-data Item f = Item
-  { guid :: Ref Item,
-    name :: String,
+data Item l = Item
+  { name :: String,
     description :: String,
-    location :: f (Either (Ref Player) (Ref Room))
+    location :: Either (Obj l Player) (Obj l Room)
   }
 
-deriving instance Show (Item Identity)
+deriving instance Show (Item Snapshot)
 
-instance ToJSON (Item Identity) where
+instance ToJSON (Item Snapshot) where
   toJSON item =
     object
-      [ "guid" .= item.guid,
-        "name" .= item.name,
+      [ "name" .= item.name,
         "description" .= item.description,
-        "location" .= runIdentity item.location
+        "location" .= item.location
       ]
 
-instance FromJSON (Item Identity) where
+instance FromJSON (Item Snapshot) where
   parseJSON = withObject "Item" $ \v ->
-    Item <$> v .: "guid"
-      <*> v .: "name"
+    Item <$> v .: "name"
       <*> v .: "description"
-      <*> (Identity <$> v .: "location")
+      <*> (v .: "location")
 
-data Player f = Player
-  { guid :: Ref Player,
-    name :: String,
+data Player l = Player
+  { name :: String,
     description :: String,
-    location :: f (Ref Room),
-    inventory :: f [Ref Item]
+    location :: Obj l Room,
+    inventory :: [Obj l Item]
   }
 
-deriving instance Show (Player Identity)
+deriving instance Show (Player Snapshot)
 
-instance ToJSON (Player Identity) where
+instance ToJSON (Player Snapshot) where
   toJSON player =
     object
-      [ "guid" .= player.guid,
-        "name" .= player.name,
+      [ "name" .= player.name,
         "description" .= player.description,
-        "location" .= runIdentity player.location,
-        "inventory" .= map (.guid) (runIdentity player.inventory)
+        "location" .= player.location,
+        "inventory" .= map (.guid) player.inventory
       ]
 
-instance FromJSON (Player Identity) where
+instance FromJSON (Player Snapshot) where
   parseJSON = withObject "Player" $ \v ->
-    Player <$> v .: "guid"
-      <*> v .: "name"
+    Player <$> v .: "name"
       <*> v .: "description"
-      <*> (Identity <$> v .: "location")
-      <*> (Identity <$> v .: "inventory")
+      <*> (v .: "location")
+      <*> (v .: "inventory")
 
 data Direction = North | South | East | West deriving (Eq, Ord, Show)
 
@@ -146,74 +159,98 @@ instance FromJSON Direction where
     "west" -> pure West
     _ -> fail "Invalid direction"
 
-data World f = World
-  { rooms :: f (Map (Ref Room) (Room f)),
-    players :: f (Map (Ref Player) (Player f)),
-    items :: f (Map (Ref Item) (Item f))
+data World l = World
+  { rooms :: Mutable l (Map UUID (Mutable l (Room l))),
+    players :: Mutable l (Map UUID (Mutable l (Player l))),
+    items :: Mutable l (Map UUID (Mutable l (Item l)))
   }
 
-deriving instance Show (World Identity)
+deriving instance Show (World Snapshot)
 
-instance ToJSON (World Identity) where
+instance ToJSON (World Snapshot) where
   toJSON world =
     object
-      [ "rooms" .= runIdentity world.rooms,
-        "players" .= runIdentity world.players,
-        "items" .= runIdentity world.items
+      [ "rooms" .= world.rooms,
+        "players" .= world.players,
+        "items" .= world.items
       ]
 
-instance FromJSON (World Identity) where
+instance FromJSON (World Snapshot) where
   parseJSON = withObject "World" $ \v ->
     World <$> v .: "rooms"
       <*> v .: "players"
       <*> v .: "items"
 
-class Snapshottable (t :: (Type -> Type) -> Type) where
-  snapshot :: t TVar -> STM (t Identity)
-  instantiate :: t Identity -> STM (t TVar)
+snapshotObj :: Obj Live t -> Obj Snapshot t
+snapshotObj (Obj guid _) = Ref guid
+
+instantiateObj :: Map UUID (TVar (t Live)) -> Obj Snapshot t -> STM (Obj Live t)
+instantiateObj valueMap (Ref guid) = case Map.lookup guid valueMap of
+  Nothing -> error "Object not found"
+  Just var -> return (Obj guid var)
+
+class Snapshottable (t :: Liveness -> Type) where
+  snapshot :: t Live -> STM (t Snapshot)
+  instantiate :: World Live -> t Snapshot -> STM (t Live)
 
 instance Snapshottable Room where
   snapshot room = do
-    e <- Identity <$> readTVar room.exits
-    i <- Identity <$> readTVar room.items
-    p <- Identity <$> readTVar room.players
+    e <- traverse snapshot room.exits
+    let i = map snapshotObj room.items
+    let p = map snapshotObj room.players
     return $ room {exits = e, items = i, players = p}
 
-  instantiate room = do
-    e <- newTVar (runIdentity room.exits)
-    i <- newTVar (runIdentity room.items)
-    p <- newTVar (runIdentity room.players)
+  instantiate world room = do
+    e <- traverse (instantiate world) room.exits
+    itemMap <- readTVar world.items
+    i <- traverse (instantiateObj itemMap) room.items
+    playerMap <- readTVar world.players
+    p <- traverse (instantiateObj playerMap) room.players
     return $ room {exits = e, items = i, players = p}
+
+instance Snapshottable Exit where
+  snapshot exit = do
+    let dest = snapshotObj exit.destination
+    return $ exit {destination = dest}
+
+  instantiate world exit = do
+    roomMap <- readTVar world.rooms
+    dest <- instantiateObj roomMap exit.destination
+    return $ exit {destination = dest}
 
 instance Snapshottable Player where
   snapshot player = do
-    l <- Identity <$> readTVar player.location
-    i <- Identity <$> readTVar player.inventory
-    return $ player {location = l, inventory = i}
+    let loc = snapshotObj player.location
+    let inv = map snapshotObj player.inventory
+    return $ player {location = loc, inventory = inv}
 
-  instantiate player = do
-    l <- newTVar (runIdentity player.location)
-    i <- newTVar (runIdentity player.inventory)
-    return $ player {location = l, inventory = i}
+  instantiate world player = do
+    roomMap <- readTVar world.rooms
+    loc <- instantiateObj roomMap player.location
+    itemMap <- readTVar world.items
+    inv <- traverse (instantiateObj itemMap) player.inventory
+    return $ player {location = loc, inventory = inv}
 
 instance Snapshottable Item where
   snapshot item = do
-    l <- Identity <$> readTVar item.location
-    return $ item {location = l}
+    let loc = bimap snapshotObj snapshotObj item.location
+    return $ item {location = loc}
 
-  instantiate item = do
-    l <- newTVar (runIdentity item.location)
-    return $ item {location = l}
+  instantiate world item = do
+    playerMap <- readTVar world.players
+    roomMap <- readTVar world.rooms
+    loc <-
+      bitraverse
+        (instantiateObj playerMap)
+        (instantiateObj roomMap)
+        item.location
+    return $ item {location = loc}
 
 instance Snapshottable World where
   snapshot world = do
-    r <- Identity <$> (traverse snapshot =<< readTVar world.rooms)
-    p <- Identity <$> (traverse snapshot =<< readTVar world.players)
-    i <- Identity <$> (traverse snapshot =<< readTVar world.items)
+    r <- traverse (snapshot <=< readTVar) =<< readTVar world.rooms
+    p <- traverse (snapshot <=< readTVar) =<< readTVar world.players
+    i <- traverse (snapshot <=< readTVar) =<< readTVar world.items
     return (World r p i)
 
-  instantiate world = do
-    r <- newTVar =<< traverse instantiate (runIdentity world.rooms)
-    p <- newTVar =<< traverse instantiate (runIdentity world.players)
-    i <- newTVar =<< traverse instantiate (runIdentity world.items)
-    return (World r p i)
+  instantiate _ world = _

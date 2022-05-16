@@ -13,4 +13,4 @@ executable ourmud
     build-depends:    base, stm, uuid, aeson, bytestring, containers, text
     hs-source-dirs:   app
     default-language: Haskell2010
-    ghc-options:      -Wall -Wno-ambiguous-fields
+    ghc-options:      -Wall -Wno-ambiguous-fields -Wno-unticked-promoted-constructors
