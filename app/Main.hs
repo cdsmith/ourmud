@@ -22,22 +22,22 @@ readWorld path = decode <$> ByteString.readFile path
 
 main :: IO ()
 main = do
-  (world, player) <- atomically $ do
-    world <- instantiate _ sampleWorld
-    playerMap <- readTVar world.players
-    case Map.lookup playerKey.guid playerMap of
+  worldObj <- instantiateWorld sampleWorld
+  player <- atomically $ do
+    world <- readTVar worldObj.var
+    case Map.lookup playerKey world.players of
       Nothing -> error "Player not found"
-      Just player -> return (world, Obj playerKey.guid player)
-  runClient world player
+      Just playerVar -> return (Obj playerKey playerVar)
+  runClient worldObj player
 
-runClient :: World Live -> Obj Live Player -> IO ()
-runClient world playerObj = do
+runClient :: Obj Live World -> Obj Live Player -> IO ()
+runClient worldObj playerObj = do
   player <- atomically $ readTVar playerObj.var
   putStrLn $ "Welcome, " ++ player.name
-  clientLoop world playerObj
+  clientLoop worldObj playerObj
 
-clientLoop :: World Live -> Obj Live Player -> IO ()
-clientLoop world playerObj = do
+clientLoop :: Obj Live World -> Obj Live Player -> IO ()
+clientLoop worldObj playerObj = do
   look
   putStr "> "
   hFlush stdout
@@ -46,23 +46,23 @@ clientLoop world playerObj = do
   case cmd of
     "n" -> do
       go North
-      clientLoop world playerObj
+      clientLoop worldObj playerObj
     "s" -> do
       go South
-      clientLoop world playerObj
+      clientLoop worldObj playerObj
     "e" -> do
       go East
-      clientLoop world playerObj
+      clientLoop worldObj playerObj
     "w" -> do
       go West
-      clientLoop world playerObj
+      clientLoop worldObj playerObj
     "quit" -> do
       putStrLn "Goodbye"
-      world' <- atomically $ snapshot world
+      world' <- atomically $ snapshotWorld worldObj
       writeWorld "world.json" world'
     _ -> do
       putStrLn "Invalid command"
-      clientLoop world playerObj
+      clientLoop worldObj playerObj
   where
     look = do
       player <- atomically $ readTVar playerObj.var
@@ -89,7 +89,7 @@ clientLoop world playerObj = do
           (exit : _) -> do
             let thereObj = exit.destination
             there <- readTVar thereObj.var
-            let pplHere = filter (\p -> p.guid /= playerObj.guid) here.players
+            let pplHere = filter (\p -> p.ref /= playerObj.ref) here.players
             let pplThere = playerObj : there.players
             writeTVar playerObj.var ((player :: Player Live) {location = thereObj})
             writeTVar hereObj.var ((here :: Room Live) {players = pplHere})

@@ -15,7 +15,7 @@ sampleWorld =
   World
     { rooms =
         ( Map.fromList
-            [ ( naveKey.guid,
+            [ ( naveKey,
                 Room
                   { name = "The Nave",
                     description = "This is a room.",
@@ -31,7 +31,7 @@ sampleWorld =
                     players = [playerKey]
                   }
               ),
-              ( vestibuleKey.guid,
+              ( vestibuleKey,
                 Room
                   { name = "The Vestibule",
                     description = "This is another room.",
@@ -51,7 +51,7 @@ sampleWorld =
         ),
       players =
         ( Map.fromList
-            [ ( playerKey.guid,
+            [ ( playerKey,
                 Player
                   { name = "Colin Elfwatcher",
                     description = "This is a player.",
@@ -63,7 +63,7 @@ sampleWorld =
         ),
       items =
         ( Map.fromList
-            [ ( itemKey.guid,
+            [ ( itemKey,
                 Item
                   { name = "Bow of Power",
                     description = "This is an item.",
