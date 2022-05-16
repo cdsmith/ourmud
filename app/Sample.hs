@@ -28,7 +28,7 @@ sampleWorld =
                           }
                       ],
                     items = [],
-                    players = [playerKey]
+                    players = [colinKey]
                   }
               ),
               ( vestibuleKey,
@@ -43,7 +43,7 @@ sampleWorld =
                             destination = naveKey
                           }
                       ],
-                    items = [],
+                    items = [crystalKey],
                     players = []
                   }
               )
@@ -51,23 +51,30 @@ sampleWorld =
         ),
       players =
         ( Map.fromList
-            [ ( playerKey,
+            [ ( colinKey,
                 Player
                   { name = "Colin Elfwatcher",
                     description = "This is a player.",
                     location = naveKey,
-                    inventory = [itemKey]
+                    inventory = [bowKey]
                   }
               )
             ]
         ),
       items =
         ( Map.fromList
-            [ ( itemKey,
+            [ ( bowKey,
                 Item
                   { name = "Bow of Power",
                     description = "This is an item.",
-                    location = (Left playerKey)
+                    location = (Left colinKey)
+                  }
+              )
+            , ( crystalKey,
+                Item
+                  { name = "Corrupted Crystal",
+                    description = "A crystal pulses with power on the ground.",
+                    location = (Right vestibuleKey)
                   }
               )
             ]
@@ -80,8 +87,11 @@ naveKey = Ref $ fromJust $ fromString "a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0"
 vestibuleKey :: Obj Snapshot Room
 vestibuleKey = Ref $ fromJust $ fromString "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1"
 
-playerKey :: Obj Snapshot Player
-playerKey = Ref $ fromJust $ fromString "b0b0b0b0-b0b0-b0b0-b0b0-b0b0b0b0b0b0"
+colinKey :: Obj Snapshot Player
+colinKey = Ref $ fromJust $ fromString "b0b0b0b0-b0b0-b0b0-b0b0-b0b0b0b0b0b0"
 
-itemKey :: Obj Snapshot Item
-itemKey = Ref $ fromJust $ fromString "c0c0c0c0-c0c0-c0c0-c0c0-c0c0c0c0c0c0"
+bowKey :: Obj Snapshot Item
+bowKey = Ref $ fromJust $ fromString "c0c0c0c0-c0c0-c0c0-c0c0-c0c0c0c0c0c0"
+
+crystalKey :: Obj Snapshot Item
+crystalKey = Ref $ fromJust $ fromString "c1c1c1c1-c1c1-c1c1-c1c1-c1c1c1c1c1c1"

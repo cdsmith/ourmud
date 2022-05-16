@@ -23,18 +23,23 @@ readWorld path = decode <$> ByteString.readFile path
 main :: IO ()
 main = do
   worldObj <- instantiateWorld sampleWorld
-  player <- atomically $ do
-    world <- readTVar worldObj.var
-    case Map.lookup playerKey world.players of
-      Nothing -> error "Player not found"
-      Just playerVar -> return (Obj playerKey playerVar)
-  runClient worldObj player
+  runClient worldObj
 
-runClient :: Obj Live World -> Obj Live Player -> IO ()
-runClient worldObj playerObj = do
+runClient :: Obj Live World -> IO ()
+runClient worldObj = do
+  playerObj <- login worldObj
+
   player <- atomically $ readTVar playerObj.var
   putStrLn $ "Welcome, " ++ player.name
+
   clientLoop worldObj playerObj
+
+login :: Obj Live World -> IO (Obj Live Player)
+login worldObj = atomically $ do
+    world <- readTVar worldObj.var
+    case Map.lookup colinKey world.players of
+      Nothing -> error "Player not found"
+      Just playerVar -> return (Obj colinKey playerVar)
 
 clientLoop :: Obj Live World -> Obj Live Player -> IO ()
 clientLoop worldObj playerObj = do
@@ -65,8 +70,12 @@ clientLoop worldObj playerObj = do
       clientLoop worldObj playerObj
   where
     look = do
-      player <- atomically $ readTVar playerObj.var
-      room <- atomically $ readTVar player.location.var
+      (room, people, items) <- atomically $ do
+        player <- readTVar playerObj.var
+        room <- readTVar player.location.var
+        people <- mapM (\p -> readTVar p.var) room.players
+        items <- mapM (\i -> readTVar i.var) room.items
+        return (room, people, items)
       putStrLn ""
       putStrLn $ "You are in " ++ room.name
       putStrLn $ room.description
@@ -75,9 +84,9 @@ clientLoop worldObj playerObj = do
           Nothing -> return ()
           Just direction -> do
             putStrLn $ "You can go " ++ show direction ++ " to " ++ exit.name
-      forM_ room.players $ \pObj -> do
-        p <- atomically $ readTVar pObj.var
-        putStrLn (p.name <> " is here.")
+      forM_ people $ \p -> putStrLn (p.name ++ " is here.")
+      forM_ items $ \i -> putStrLn ("There is a(n) " ++ i.name ++ " here.")
+
     go dir = do
       success <- atomically $ do
         player <- readTVar playerObj.var
