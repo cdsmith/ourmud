@@ -15,7 +15,7 @@ sampleWorld =
     { rooms =
         Identity
           ( Map.fromList
-              [ ( Ref naveKey,
+              [ ( naveKey,
                   Room
                     { guid = naveKey,
                       name = "The Nave",
@@ -26,25 +26,25 @@ sampleWorld =
                               { name = "Ornate Door",
                                 direction = Just North,
                                 description = "This is a door.",
-                                destination = Ref vestibuleKey
+                                destination = vestibuleKey
                               }
                           ],
                       items = Identity [],
-                      players = Identity [Ref playerKey]
+                      players = Identity [playerKey]
                     }
                 ),
-                ( Ref vestibuleKey,
+                ( vestibuleKey,
                   Room
                     { guid = vestibuleKey,
-                      name = "The Nave",
-                      description = "This is a room.",
+                      name = "The Vestibule",
+                      description = "This is another room.",
                       exits =
                         Identity
                           [ Exit
                               { name = "Ornate Door",
                                 direction = Just South,
                                 description = "This is a door.",
-                                destination = Ref naveKey
+                                destination = naveKey
                               }
                           ],
                       items = Identity [],
@@ -56,13 +56,13 @@ sampleWorld =
       players =
         Identity
           ( Map.fromList
-              [ ( Ref playerKey,
+              [ ( playerKey,
                   Player
                     { guid = playerKey,
                       name = "Colin Elfwatcher",
                       description = "This is a player.",
-                      location = Identity (Just (Ref naveKey)),
-                      inventory = Identity [Ref itemKey]
+                      location = Identity naveKey,
+                      inventory = Identity [itemKey]
                     }
                 )
               ]
@@ -70,19 +70,26 @@ sampleWorld =
       items =
         Identity
           ( Map.fromList
-              [ ( Ref itemKey,
+              [ ( itemKey,
                   Item
                     { guid = itemKey,
                       name = "Bow of Power",
                       description = "This is an item.",
-                      location = Identity (Left (Ref playerKey))
+                      location = Identity (Left playerKey)
                     }
                 )
               ]
           )
     }
-  where
-    naveKey = fromJust $ fromString "a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0"
-    vestibuleKey = fromJust $ fromString "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1"
-    playerKey = fromJust $ fromString "b0b0b0b0-b0b0-b0b0-b0b0-b0b0b0b0b0b0"
-    itemKey = fromJust $ fromString "c0c0c0c0-c0c0-c0c0-c0c0-c0c0c0c0c0c0"
+
+naveKey :: Ref Room
+naveKey = Ref $ fromJust $ fromString "a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0"
+
+vestibuleKey :: Ref Room
+vestibuleKey = Ref $ fromJust $ fromString "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1"
+
+playerKey :: Ref Player
+playerKey = Ref $ fromJust $ fromString "b0b0b0b0-b0b0-b0b0-b0b0-b0b0b0b0b0b0"
+
+itemKey :: Ref Item
+itemKey = Ref $ fromJust $ fromString "c0c0c0c0-c0c0-c0c0-c0c0-c0c0c0c0c0c0"

@@ -23,7 +23,7 @@ newtype Ref (a :: (Type -> Type) -> Type) = Ref {guid :: UUID}
   deriving newtype (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
 
 data Room f = Room
-  { guid :: UUID,
+  { guid :: Ref Room,
     name :: String,
     description :: String,
     exits :: f [Exit],
@@ -78,7 +78,7 @@ instance FromJSON Exit where
       <*> v .: "destination"
 
 data Item f = Item
-  { guid :: UUID,
+  { guid :: Ref Item,
     name :: String,
     description :: String,
     location :: f (Either (Ref Player) (Ref Room))
@@ -103,10 +103,10 @@ instance FromJSON (Item Identity) where
       <*> (Identity <$> v .: "location")
 
 data Player f = Player
-  { guid :: UUID,
+  { guid :: Ref Player,
     name :: String,
     description :: String,
-    location :: f (Maybe (Ref Room)),
+    location :: f (Ref Room),
     inventory :: f [Ref Item]
   }
 
@@ -130,7 +130,7 @@ instance FromJSON (Player Identity) where
       <*> (Identity <$> v .: "location")
       <*> (Identity <$> v .: "inventory")
 
-data Direction = North | South | East | West deriving (Show)
+data Direction = North | South | East | West deriving (Eq, Ord, Show)
 
 instance ToJSON Direction where
   toJSON North = "north"
