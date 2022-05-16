@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
@@ -10,7 +11,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoFieldSelectors #-}
-{-# LANGUAGE FlexibleContexts #-}
 
 module Model where
 
@@ -40,6 +40,7 @@ newtype Ref (a :: Liveness -> Type) = Ref {guid :: UUID}
   deriving newtype (Eq, Ord, Show, ToJSON, ToJSONKey, FromJSON, FromJSONKey)
 
 data LiveObj (a :: Liveness -> Type) = Obj {ref :: Ref a, var :: TVar (a Live)}
+  deriving (Eq)
 
 type family Mutable (l :: Liveness) (a :: Type) :: Type where
   Mutable Snapshot a = a
@@ -264,3 +265,6 @@ instantiateWorld snap = do
       p <- traverse (newTVarIO . instantiatePlayer world) snap.players
       i <- traverse (newTVarIO . instantiateItem world) snap.items
       return (World {rooms = r, players = p, items = i})
+
+lookupObj :: Map (Ref a) (TVar (a Live)) -> Ref a -> Maybe (Obj Live a)
+lookupObj objMap ref = Obj ref <$> Map.lookup ref objMap

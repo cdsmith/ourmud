@@ -69,8 +69,8 @@ sampleWorld =
                     description = "This is an item.",
                     location = (Left colinKey)
                   }
-              )
-            , ( crystalKey,
+              ),
+              ( crystalKey,
                 Item
                   { name = "Corrupted Crystal",
                     description = "A crystal pulses with power on the ground.",
