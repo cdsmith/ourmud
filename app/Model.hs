@@ -10,10 +10,11 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE NoFieldSelectors #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Model where
 
-import Control.Concurrent.STM (STM, TVar, readTVar, newTVarIO)
+import Control.Concurrent.STM (STM, TVar, newTVarIO, readTVar)
 import Data.Aeson
   ( FromJSON (parseJSON),
     FromJSONKey,
@@ -48,6 +49,14 @@ type family Obj (l :: Liveness) (a :: Liveness -> Type) where
   Obj Snapshot a = Ref a
   Obj Live a = LiveObj a
 
+snapshotObj :: Obj Live t -> Obj Snapshot t
+snapshotObj (Obj ref _) = ref
+
+instantiateObj :: Map (Ref t) (TVar (t Live)) -> Obj Snapshot t -> Obj Live t
+instantiateObj valueMap ref = case Map.lookup ref valueMap of
+  Nothing -> error "Object not found"
+  Just var -> Obj ref var
+
 data Room l = Room
   { name :: String,
     description :: String,
@@ -76,6 +85,36 @@ instance FromJSON (Room Snapshot) where
       <*> (v .: "items")
       <*> (v .: "players")
 
+snapshotRoom :: Room Live -> Room Snapshot
+snapshotRoom room =
+  let e = snapshotExit <$> room.exits
+      i = map snapshotObj room.items
+      p = map snapshotObj room.players
+   in room {exits = e, items = i, players = p}
+
+instantiateRoom :: World Live -> Room Snapshot -> Room Live
+instantiateRoom world room =
+  let e = instantiateExit world <$> room.exits
+      i = instantiateObj world.items <$> room.items
+      p = instantiateObj world.players <$> room.players
+   in room {exits = e, items = i, players = p}
+
+data Direction = North | South | East | West deriving (Eq, Ord, Show)
+
+instance ToJSON Direction where
+  toJSON North = "north"
+  toJSON South = "south"
+  toJSON East = "east"
+  toJSON West = "west"
+
+instance FromJSON Direction where
+  parseJSON = withText "Direction" $ \case
+    "north" -> pure North
+    "south" -> pure South
+    "east" -> pure East
+    "west" -> pure West
+    _ -> fail "Invalid direction"
+
 data Exit l = Exit
   { name :: String,
     direction :: Maybe Direction,
@@ -101,6 +140,16 @@ instance FromJSON (Exit Snapshot) where
       <*> v .: "description"
       <*> v .: "destination"
 
+snapshotExit :: Exit Live -> Exit Snapshot
+snapshotExit exit =
+  let dest = snapshotObj exit.destination
+   in exit {destination = dest}
+
+instantiateExit :: World Live -> Exit Snapshot -> Exit Live
+instantiateExit world exit =
+  let dest = instantiateObj world.rooms exit.destination
+   in exit {destination = dest}
+
 data Item l = Item
   { name :: String,
     description :: String,
@@ -122,6 +171,20 @@ instance FromJSON (Item Snapshot) where
     Item <$> v .: "name"
       <*> v .: "description"
       <*> (v .: "location")
+
+snapshotItem :: Item Live -> Item Snapshot
+snapshotItem item =
+  let loc = bimap snapshotObj snapshotObj item.location
+   in item {location = loc}
+
+instantiateItem :: World Live -> Item Snapshot -> Item Live
+instantiateItem world item =
+  let loc =
+        bimap
+          (instantiateObj world.players)
+          (instantiateObj world.rooms)
+          item.location
+   in item {location = loc}
 
 data Player l = Player
   { name :: String,
@@ -148,21 +211,17 @@ instance FromJSON (Player Snapshot) where
       <*> (v .: "location")
       <*> (v .: "inventory")
 
-data Direction = North | South | East | West deriving (Eq, Ord, Show)
+snapshotPlayer :: Player Live -> Player Snapshot
+snapshotPlayer player =
+  let loc = snapshotObj player.location
+      inv = map snapshotObj player.inventory
+   in player {location = loc, inventory = inv}
 
-instance ToJSON Direction where
-  toJSON North = "north"
-  toJSON South = "south"
-  toJSON East = "east"
-  toJSON West = "west"
-
-instance FromJSON Direction where
-  parseJSON = withText "Direction" $ \case
-    "north" -> pure North
-    "south" -> pure South
-    "east" -> pure East
-    "west" -> pure West
-    _ -> fail "Invalid direction"
+instantiatePlayer :: World Live -> Player Snapshot -> Player Live
+instantiatePlayer world player =
+  let loc = instantiateObj world.rooms player.location
+      inv = instantiateObj world.items <$> player.inventory
+   in player {location = loc, inventory = inv}
 
 data World l = World
   { rooms :: Map (Ref Room) (Mutable l (Room l)),
@@ -186,80 +245,22 @@ instance FromJSON (World Snapshot) where
       <*> v .: "players"
       <*> v .: "items"
 
-snapshotObj :: Obj Live t -> Obj Snapshot t
-snapshotObj (Obj ref _) = ref
-
-instantiateObj :: Map (Ref t) (TVar (t Live)) -> Obj Snapshot t -> Obj Live t
-instantiateObj valueMap ref = case Map.lookup ref valueMap of
-  Nothing -> error "Object not found"
-  Just var -> Obj ref var
-
-class Snapshottable (t :: Liveness -> Type) where
-  snapshot :: t Live -> t Snapshot
-  instantiate :: World Live -> t Snapshot -> t Live
-
-instance Snapshottable Room where
-  snapshot room =
-    let e = snapshot <$> room.exits
-        i = map snapshotObj room.items
-        p = map snapshotObj room.players
-     in room {exits = e, items = i, players = p}
-
-  instantiate world room =
-    let e = instantiate world <$> room.exits
-        i = instantiateObj world.items <$> room.items
-        p = instantiateObj world.players <$> room.players
-     in room {exits = e, items = i, players = p}
-
-instance Snapshottable Exit where
-  snapshot exit =
-    let dest = snapshotObj exit.destination
-     in exit {destination = dest}
-
-  instantiate world exit =
-    let dest = instantiateObj world.rooms exit.destination
-     in exit {destination = dest}
-
-instance Snapshottable Player where
-  snapshot player =
-    let loc = snapshotObj player.location
-        inv = map snapshotObj player.inventory
-     in player {location = loc, inventory = inv}
-
-  instantiate world player =
-    let loc = instantiateObj world.rooms player.location
-        inv = instantiateObj world.items <$> player.inventory
-     in player {location = loc, inventory = inv}
-
-instance Snapshottable Item where
-  snapshot item =
-    let loc = bimap snapshotObj snapshotObj item.location
-     in item {location = loc}
-
-  instantiate world item =
-    let loc =
-          bimap
-            (instantiateObj world.players)
-            (instantiateObj world.rooms)
-            item.location
-     in item {location = loc}
-
 snapshotWorld :: Obj Live World -> STM (World Snapshot)
 snapshotWorld worldObj = do
   world <- readTVar worldObj.var
-  r <- traverse (fmap snapshot . readTVar) world.rooms
-  p <- traverse (fmap snapshot . readTVar) world.players
-  i <- traverse (fmap snapshot . readTVar) world.items
+  r <- traverse (fmap snapshotRoom . readTVar) world.rooms
+  p <- traverse (fmap snapshotPlayer . readTVar) world.players
+  i <- traverse (fmap snapshotItem . readTVar) world.items
   return (World r p i)
 
 instantiateWorld :: World Snapshot -> IO (Obj Live World)
 instantiateWorld snap = do
-    world <- newTVarIO =<< fixIO go
-    return (Obj (Ref UUID.nil) world)
+  world <- newTVarIO =<< fixIO go
+  return (Obj (Ref UUID.nil) world)
   where
     go :: World Live -> IO (World Live)
     go world = do
-        r <- traverse (newTVarIO . instantiate world) snap.rooms
-        p <- traverse (newTVarIO . instantiate world) snap.players
-        i <- traverse (newTVarIO . instantiate world) snap.items
-        return (World {rooms = r, players = p, items = i})
+      r <- traverse (newTVarIO . instantiateRoom world) snap.rooms
+      p <- traverse (newTVarIO . instantiatePlayer world) snap.players
+      i <- traverse (newTVarIO . instantiateItem world) snap.items
+      return (World {rooms = r, players = p, items = i})
