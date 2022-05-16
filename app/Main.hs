@@ -11,13 +11,35 @@ import Control.Monad
 import Data.Char (toLower)
 import Model
 import Sample
+import System.Directory (doesFileExist)
 import System.IO
 import World
 
 main :: IO ()
 main = do
-  worldObj <- instantiateWorld sampleWorld
+  initialWorld <- restoreWorld
+  worldObj <- instantiateWorld initialWorld
+
   runClient worldObj
+
+  finalWorld <- atomically $ snapshotWorld worldObj
+  writeWorld "world.json" finalWorld
+
+restoreWorld :: IO (World Snapshot)
+restoreWorld = do
+  exists <- doesFileExist "world.json"
+  if exists
+    then do
+      readWorld "world.json" >>= \case
+        Just world -> do
+          putStrLn "Successfully restored the world."
+          return world
+        Nothing -> do
+          putStrLn "Could not read world.json.  Using the sample world instead!"
+          return sampleWorld
+    else do
+      putStrLn "No saved world.  Using the sample world instead!"
+      return sampleWorld
 
 runClient :: Obj Live World -> IO ()
 runClient worldObj = do
@@ -67,17 +89,11 @@ clientLoop worldObj playerObj = do
     ("drop" : item) -> dropItem playerObj (unwords item) >> continue
     ("p" : item) -> dropItem playerObj (unwords item) >> continue
     ("put" : item) -> dropItem playerObj (unwords item) >> continue
-    ["q"] -> quit worldObj
-    ["quit"] -> quit worldObj
+    ["q"] -> putStrLn "Goodbye!"
+    ["quit"] -> putStrLn "Goodbye!"
     _ -> do
       putStrLn "Invalid command"
       clientLoop worldObj playerObj
-
-quit :: Obj Live World -> IO ()
-quit worldObj = do
-  putStrLn "Goodbye"
-  world' <- atomically $ snapshotWorld worldObj
-  writeWorld "world.json" world'
 
 look :: Obj Live Player -> IO ()
 look playerObj = do
