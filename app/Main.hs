@@ -6,12 +6,14 @@
 
 module Main where
 
+import Control.Concurrent (forkIO)
 import Control.Concurrent.STM
 import Control.Monad
 import Data.Char (toLower)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Model
+import Network.Socket
 import Sample
 import System.Directory (doesFileExist)
 import System.IO
@@ -22,10 +24,29 @@ main = do
   initialWorld <- restoreWorld
   worldObj <- instantiateWorld initialWorld
 
-  runClient worldObj
+  runServer worldObj
 
   finalWorld <- atomically $ snapshotWorld worldObj
   writeWorld "world.json" finalWorld
+
+runServer :: Obj Live World -> IO ()
+runServer worldObj = do
+  putStrLn "Starting server..."
+  sock <- socket AF_INET Stream 0
+  setSocketOption sock ReuseAddr 1
+  bind sock (SockAddrInet 4242 0)
+  listen sock 2
+  serverLoop sock worldObj
+  close sock
+
+serverLoop :: Socket -> Obj Live World -> IO ()
+serverLoop sock worldObj = do
+  (conn, _) <- accept sock
+  _ <- forkIO $ do
+    handle <- socketToHandle conn ReadWriteMode
+    runClient handle worldObj
+    close conn
+  serverLoop sock worldObj
 
 restoreWorld :: IO (World Snapshot)
 restoreWorld = do
@@ -43,27 +64,27 @@ restoreWorld = do
       putStrLn "No saved world.  Using the sample world instead!"
       return sampleWorld
 
-runClient :: Obj Live World -> IO ()
-runClient worldObj = do
-  playerObj <- login worldObj
+runClient :: Handle -> Obj Live World -> IO ()
+runClient handle worldObj = do
+  login handle worldObj >>= \case
+    Just playerObj -> do
+      player <- atomically $ readTVar playerObj.var
+      hPutStrLn handle $ "Welcome, " ++ player.name
 
-  player <- atomically $ readTVar playerObj.var
-  putStrLn $ "Welcome, " ++ player.name
+      look handle playerObj
+      clientLoop handle worldObj playerObj
+    Nothing -> do
+      hPutStrLn handle $ "Could not find character."
+      return ()
 
-  look playerObj
-  clientLoop worldObj playerObj
-
-login :: Obj Live World -> IO (Obj Live Player)
-login worldObj = atomically $ do
-  lookupPlayer worldObj colinKey >>= \case
-    Just playerObj -> return playerObj
-    Nothing -> error "Player not found"
+login :: Handle -> Obj Live World -> IO (Maybe (Obj Live Player))
+login _handle worldObj = atomically (lookupPlayer worldObj colinKey)
 
 data Command = Command
   { description :: String,
     hide :: Bool,
     continue :: Bool,
-    action :: [String] -> Obj Live World -> Obj Live Player -> IO ()
+    action :: Handle -> [String] -> Obj Live World -> Obj Live Player -> IO ()
   }
 
 defaultCommand :: Command
@@ -72,7 +93,7 @@ defaultCommand =
     { description = "Invalid command",
       hide = False,
       continue = True,
-      action = \_ _ _ -> return ()
+      action = \_ _ _ _ -> return ()
     }
 
 commands :: Map String Command
@@ -118,7 +139,7 @@ lookCmd =
           [ "look: Look around",
             "  abbreviated: l"
           ],
-      action = \_ _ playerObj -> look playerObj
+      action = \handle _ _ playerObj -> look handle playerObj
     }
 
 northCmd :: Command
@@ -129,7 +150,7 @@ northCmd =
           [ "north: Go north",
             "  abbreviated: n"
           ],
-      action = \_ _ playerObj -> go playerObj North
+      action = \handle _ _ playerObj -> go handle playerObj North
     }
 
 southCmd :: Command
@@ -140,7 +161,7 @@ southCmd =
           [ "south: Go south",
             "  abbreviated: s"
           ],
-      action = \_ _ playerObj -> go playerObj South
+      action = \handle _ _ playerObj -> go handle playerObj South
     }
 
 eastCmd :: Command
@@ -151,7 +172,7 @@ eastCmd =
           [ "east: Go east",
             "  abbreviated: e"
           ],
-      action = \_ _ playerObj -> go playerObj East
+      action = \handle _ _ playerObj -> go handle playerObj East
     }
 
 westCmd :: Command
@@ -162,7 +183,7 @@ westCmd =
           [ "west: Go west",
             "  abbreviated: w"
           ],
-      action = \_ _ playerObj -> go playerObj West
+      action = \handle _ _ playerObj -> go handle playerObj West
     }
 
 inventoryCmd :: Command
@@ -173,7 +194,7 @@ inventoryCmd =
           [ "inventory: Show your inventory",
             "  abbreviated: inv, i"
           ],
-      action = \_ _ playerObj -> inventory playerObj
+      action = \handle _ _ playerObj -> inventory handle playerObj
     }
 
 takeCmd :: Command
@@ -184,7 +205,7 @@ takeCmd =
           [ "take: Take an item",
             "  abbreviated: t, get, g"
           ],
-      action = \args _ playerObj -> takeItem playerObj (unwords args)
+      action = \handle args _ playerObj -> takeItem handle playerObj (unwords args)
     }
 
 dropCmd :: Command
@@ -195,7 +216,7 @@ dropCmd =
           [ "drop: Drop an item",
             "  abbreviated: d, put, p"
           ],
-      action = \args _ playerObj -> dropItem playerObj (unwords args)
+      action = \handle args _ playerObj -> dropItem handle playerObj (unwords args)
     }
 
 helpCmd :: Command
@@ -206,11 +227,10 @@ helpCmd =
           [ "help: Show this help message",
             "  abbreviated: h, ?"
           ],
-      action = \_ _ _ -> do
-        putStrLn "Commands:"
+      action = \handle _ _ _ -> do
+        hPutStrLn handle "Commands:"
         forM_ (Map.toList commands) $ \(_, cmd) ->
-          unless cmd.hide $ putStrLn cmd.description
-        return ()
+          unless cmd.hide $ hPutStrLn handle cmd.description
     }
 
 quitCmd :: Command
@@ -221,29 +241,29 @@ quitCmd =
           [ "quit: Quit the game",
             "  abbreviated: q, exit, lo, logout, logoff"
           ],
-      action = \_ _ _ -> putStrLn "Goodbye!",
+      action = \handle _ _ _ -> hPutStrLn handle "Goodbye!",
       continue = False
     }
 
-clientLoop :: Obj Live World -> Obj Live Player -> IO ()
-clientLoop worldObj playerObj = do
-  putStrLn ""
-  putStr "> "
-  hFlush stdout
-  cmdLine <- getLine
+clientLoop :: Handle -> Obj Live World -> Obj Live Player -> IO ()
+clientLoop handle worldObj playerObj = do
+  hPutStrLn handle ""
+  hPutStr handle "> "
+  hFlush handle
+  cmdLine <- hGetLine handle
 
   case words cmdLine of
-    [] -> clientLoop worldObj playerObj
+    [] -> clientLoop handle worldObj playerObj
     (cmd : args) -> case Map.lookup (map toLower cmd) commands of
       Nothing -> do
-        putStrLn "Unknown command"
-        clientLoop worldObj playerObj
+        hPutStrLn handle "Unknown command"
+        clientLoop handle worldObj playerObj
       Just command -> do
-        action command args worldObj playerObj
-        when (continue command) (clientLoop worldObj playerObj)
+        action command handle args worldObj playerObj
+        when (continue command) (clientLoop handle worldObj playerObj)
 
-look :: Obj Live Player -> IO ()
-look playerObj = do
+look :: Handle -> Obj Live Player -> IO ()
+look handle playerObj = do
   (room, people, items) <- atomically $ do
     player <- readTVar playerObj.var
     room <- readTVar player.location.var
@@ -251,18 +271,19 @@ look playerObj = do
     people <- mapM (\p -> readTVar p.var) otherPlayers
     items <- mapM (\i -> readTVar i.var) room.items
     return (room, people, items)
-  putStrLn $ "You are in " ++ room.name
-  putStrLn $ room.description
+  hPutStrLn handle $ "You are in " ++ room.name ++ "."
+  hPutStrLn handle room.description
   forM_ room.exits $ \exit -> do
     case exit.direction of
       Nothing -> return ()
       Just direction -> do
-        putStrLn $ "You can go " ++ show direction ++ " to " ++ exit.name
-  forM_ people $ \p -> putStrLn (p.name ++ " is here.")
-  forM_ items $ \i -> putStrLn ("There is a(n) " ++ i.name ++ " here.")
+        hPutStrLn handle $
+          "You can go " ++ show direction ++ " to " ++ exit.name ++ "."
+  forM_ people $ \p -> hPutStrLn handle $ p.name ++ " is here."
+  forM_ items $ \i -> hPutStrLn handle $ "There is a " ++ i.name ++ " here."
 
-go :: Obj Live Player -> Direction -> IO ()
-go playerObj dir = do
+go :: Handle -> Obj Live Player -> Direction -> IO ()
+go handle playerObj dir = do
   success <- atomically $ do
     player <- readTVar playerObj.var
     let hereObj = player.location
@@ -274,18 +295,18 @@ go playerObj dir = do
         setPlayerLocation playerObj exit.destination
         return True
   case success of
-    True -> look playerObj
-    False -> putStrLn "You can't go that way!"
+    True -> look handle playerObj
+    False -> hPutStrLn handle "You can't go that way!"
 
-inventory :: Obj Live Player -> IO ()
-inventory playerObj = do
+inventory :: Handle -> Obj Live Player -> IO ()
+inventory handle playerObj = do
   items <- atomically $ do
     player <- readTVar playerObj.var
     traverse (\i -> readTVar i.var) player.inventory
-  forM_ items $ \i -> putStrLn (i.name ++ " is in your inventory.")
+  forM_ items $ \i -> hPutStrLn handle $ i.name ++ " is in your inventory."
 
-takeItem :: Obj Live Player -> String -> IO ()
-takeItem playerObj itemName = do
+takeItem :: Handle -> Obj Live Player -> String -> IO ()
+takeItem handle playerObj itemName = do
   result <- atomically $ do
     player <- readTVar playerObj.var
     let hereObj = player.location
@@ -298,11 +319,11 @@ takeItem playerObj itemName = do
         success <- pickUp playerObj itemObj
         if success then return (Just item) else return Nothing
   case result of
-    Nothing -> putStrLn "You can't find that item!"
-    Just item -> putStrLn ("You pick up " ++ item.name)
+    Nothing -> hPutStrLn handle "You can't find that item!"
+    Just item -> hPutStrLn handle $ "You pick up " ++ item.name ++ "."
 
-dropItem :: Obj Live Player -> String -> IO ()
-dropItem playerObj itemName = do
+dropItem :: Handle -> Obj Live Player -> String -> IO ()
+dropItem handle playerObj itemName = do
   result <- atomically $ do
     player <- readTVar playerObj.var
     items <- zip player.inventory <$> traverse (\i -> readTVar i.var) player.inventory
@@ -313,8 +334,8 @@ dropItem playerObj itemName = do
         success <- putDown playerObj itemObj
         if success then return (Just item) else return Nothing
   case result of
-    Nothing -> putStrLn "You aren't carrying that item!"
-    Just item -> putStrLn ("You drop " ++ item.name)
+    Nothing -> hPutStrLn handle "You aren't carrying that item!"
+    Just item -> hPutStrLn handle $ "You drop " ++ item.name ++ "."
 
 itemGoesByName :: String -> Item l -> Bool
 itemGoesByName itemName item =
