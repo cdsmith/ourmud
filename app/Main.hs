@@ -9,6 +9,8 @@ module Main where
 import Control.Concurrent.STM
 import Control.Monad
 import Data.Char (toLower)
+import Data.Map (Map)
+import qualified Data.Map.Strict as Map
 import Model
 import Sample
 import System.Directory (doesFileExist)
@@ -57,43 +59,188 @@ login worldObj = atomically $ do
     Just playerObj -> return playerObj
     Nothing -> error "Player not found"
 
+data Command = Command
+  { description :: String,
+    hide :: Bool,
+    continue :: Bool,
+    action :: [String] -> Obj Live World -> Obj Live Player -> IO ()
+  }
+
+defaultCommand :: Command
+defaultCommand =
+  Command
+    { description = "Invalid command",
+      hide = False,
+      continue = True,
+      action = \_ _ _ -> return ()
+    }
+
+commands :: Map String Command
+commands =
+  Map.fromList
+    [ ("l", lookCmd {hide = True}),
+      ("look", lookCmd),
+      ("n", northCmd {hide = True}),
+      ("north", northCmd),
+      ("s", southCmd {hide = True}),
+      ("south", southCmd),
+      ("e", eastCmd {hide = True}),
+      ("east", eastCmd),
+      ("w", westCmd {hide = True}),
+      ("west", westCmd),
+      ("i", inventoryCmd {hide = True}),
+      ("inv", inventoryCmd {hide = True}),
+      ("inventory", inventoryCmd),
+      ("g", takeCmd {hide = True}),
+      ("get", takeCmd {hide = True}),
+      ("t", takeCmd {hide = True}),
+      ("take", takeCmd),
+      ("p", dropCmd {hide = True}),
+      ("put", dropCmd {hide = True}),
+      ("d", dropCmd {hide = True}),
+      ("drop", dropCmd),
+      ("help", helpCmd),
+      ("h", helpCmd {hide = True}),
+      ("?", helpCmd {hide = True}),
+      ("q", quitCmd {hide = True}),
+      ("exit", quitCmd {hide = True}),
+      ("lo", quitCmd {hide = True}),
+      ("logout", quitCmd {hide = True}),
+      ("logoff", quitCmd {hide = True}),
+      ("quit", quitCmd)
+    ]
+
+lookCmd :: Command
+lookCmd =
+  defaultCommand
+    { description =
+        unlines
+          [ "look: Look around",
+            "  abbreviated: l"
+          ],
+      action = \_ _ playerObj -> look playerObj
+    }
+
+northCmd :: Command
+northCmd =
+  defaultCommand
+    { description =
+        unlines
+          [ "north: Go north",
+            "  abbreviated: n"
+          ],
+      action = \_ _ playerObj -> go playerObj North
+    }
+
+southCmd :: Command
+southCmd =
+  defaultCommand
+    { description =
+        unlines
+          [ "south: Go south",
+            "  abbreviated: s"
+          ],
+      action = \_ _ playerObj -> go playerObj South
+    }
+
+eastCmd :: Command
+eastCmd =
+  defaultCommand
+    { description =
+        unlines
+          [ "east: Go east",
+            "  abbreviated: e"
+          ],
+      action = \_ _ playerObj -> go playerObj East
+    }
+
+westCmd :: Command
+westCmd =
+  defaultCommand
+    { description =
+        unlines
+          [ "west: Go west",
+            "  abbreviated: w"
+          ],
+      action = \_ _ playerObj -> go playerObj West
+    }
+
+inventoryCmd :: Command
+inventoryCmd =
+  defaultCommand
+    { description =
+        unlines
+          [ "inventory: Show your inventory",
+            "  abbreviated: inv, i"
+          ],
+      action = \_ _ playerObj -> inventory playerObj
+    }
+
+takeCmd :: Command
+takeCmd =
+  defaultCommand
+    { description =
+        unlines
+          [ "take: Take an item",
+            "  abbreviated: t, get, g"
+          ],
+      action = \args _ playerObj -> takeItem playerObj (unwords args)
+    }
+
+dropCmd :: Command
+dropCmd =
+  defaultCommand
+    { description =
+        unlines
+          [ "drop: Drop an item",
+            "  abbreviated: d, put, p"
+          ],
+      action = \args _ playerObj -> dropItem playerObj (unwords args)
+    }
+
+helpCmd :: Command
+helpCmd =
+  defaultCommand
+    { description =
+        unlines
+          [ "help: Show this help message",
+            "  abbreviated: h, ?"
+          ],
+      action = \_ _ _ -> do
+        putStrLn "Commands:"
+        forM_ (Map.toList commands) $ \(_, cmd) ->
+          unless cmd.hide $ putStrLn cmd.description
+        return ()
+    }
+
+quitCmd :: Command
+quitCmd =
+  defaultCommand
+    { description =
+        unlines
+          [ "quit: Quit the game",
+            "  abbreviated: q, exit, lo, logout, logoff"
+          ],
+      action = \_ _ _ -> putStrLn "Goodbye!",
+      continue = False
+    }
+
 clientLoop :: Obj Live World -> Obj Live Player -> IO ()
 clientLoop worldObj playerObj = do
   putStrLn ""
   putStr "> "
   hFlush stdout
-  cmd <- getLine
+  cmdLine <- getLine
 
-  let continue = clientLoop worldObj playerObj
-  case words cmd of
-    [] -> continue
-    ["l"] -> look playerObj >> continue
-    ["look"] -> look playerObj >> continue
-    ["n"] -> go playerObj North >> continue
-    ["north"] -> go playerObj North >> continue
-    ["s"] -> go playerObj South >> continue
-    ["south"] -> go playerObj South >> continue
-    ["e"] -> go playerObj East >> continue
-    ["east"] -> go playerObj East >> continue
-    ["w"] -> go playerObj West >> continue
-    ["west"] -> go playerObj West >> continue
-    ["i"] -> inventory playerObj >> continue
-    ["inv"] -> inventory playerObj >> continue
-    ["inventory"] -> inventory playerObj >> continue
-    ("g" : item) -> takeItem playerObj (unwords item) >> continue
-    ("get" : item) -> takeItem playerObj (unwords item) >> continue
-    ("t" : item) -> takeItem playerObj (unwords item) >> continue
-    ("take" : item) -> takeItem playerObj (unwords item) >> continue
-    ("pick" : "up" : item) -> takeItem playerObj (unwords item) >> continue
-    ("d" : item) -> dropItem playerObj (unwords item) >> continue
-    ("drop" : item) -> dropItem playerObj (unwords item) >> continue
-    ("p" : item) -> dropItem playerObj (unwords item) >> continue
-    ("put" : item) -> dropItem playerObj (unwords item) >> continue
-    ["q"] -> putStrLn "Goodbye!"
-    ["quit"] -> putStrLn "Goodbye!"
-    _ -> do
-      putStrLn "Invalid command"
-      clientLoop worldObj playerObj
+  case words cmdLine of
+    [] -> clientLoop worldObj playerObj
+    (cmd : args) -> case Map.lookup (map toLower cmd) commands of
+      Nothing -> do
+        putStrLn "Unknown command"
+        clientLoop worldObj playerObj
+      Just command -> do
+        action command args worldObj playerObj
+        when (continue command) (clientLoop worldObj playerObj)
 
 look :: Obj Live Player -> IO ()
 look playerObj = do
