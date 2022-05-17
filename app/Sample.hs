@@ -18,12 +18,18 @@ sampleWorld =
             [ ( naveKey,
                 Room
                   { name = "The Nave",
-                    description = "This is a room.",
+                    description =
+                      unlines
+                        [ "This is the central part of the cathedral.  There are",
+                          "pews all around you, and a picturesque altar at the",
+                          "front."
+                        ],
                     exits =
                       [ Exit
                           { name = "Ornate Door",
+                            nicknames = ["door"],
                             direction = Just North,
-                            description = "This is a door.",
+                            description = "An ornate door stands at the cathedral entrance.",
                             destination = vestibuleKey
                           }
                       ],
@@ -34,12 +40,18 @@ sampleWorld =
               ( vestibuleKey,
                 Room
                   { name = "The Vestibule",
-                    description = "This is another room.",
+                    description =
+                      unlines
+                        [ "This is a small antechamber just inside the cathedral.",
+                          "A large painting depicts the baptism of a young girl",
+                          "with angels surrounding her."
+                        ],
                     exits =
                       [ Exit
                           { name = "Ornate Door",
+                            nicknames = ["door"],
                             direction = Just South,
-                            description = "This is a door.",
+                            description = "An ornate door leads further into the cathedral.",
                             destination = naveKey
                           }
                       ],
@@ -54,7 +66,11 @@ sampleWorld =
             [ ( colinKey,
                 Player
                   { name = "Colin Elfwatcher",
-                    description = "This is a player.",
+                    description =
+                      unlines
+                        [ "A tall and lanky figure, Colin is dressed in a rough",
+                          "linen tunic, and wears a short sword at his side."
+                        ],
                     location = naveKey,
                     inventory = [bowKey]
                   }
@@ -67,7 +83,7 @@ sampleWorld =
                 Item
                   { name = "Bow of Power",
                     nicknames = ["bow"],
-                    description = "This is an item.",
+                    description = "This bow gives off a soft white glow.",
                     location = (Left colinKey)
                   }
               ),
@@ -75,7 +91,7 @@ sampleWorld =
                 Item
                   { name = "Corrupted Crystal",
                     nicknames = ["crystal"],
-                    description = "A crystal pulses with power on the ground.",
+                    description = "The crystal pulses with dark energy like a beating heart.",
                     location = (Right vestibuleKey)
                   }
               )

@@ -118,6 +118,7 @@ instance FromJSON Direction where
 
 data Exit l = Exit
   { name :: String,
+    nicknames :: [String],
     direction :: Maybe Direction,
     description :: String,
     destination :: Obj l Room
@@ -129,6 +130,7 @@ instance ToJSON (Exit Snapshot) where
   toJSON exit =
     object
       [ "name" .= exit.name,
+        "nicknames" .= exit.nicknames,
         "direction" .= exit.direction,
         "description" .= exit.description,
         "destination" .= exit.destination
@@ -137,6 +139,7 @@ instance ToJSON (Exit Snapshot) where
 instance FromJSON (Exit Snapshot) where
   parseJSON = withObject "Exit" $ \v ->
     Exit <$> v .: "name"
+      <*> v .: "nicknames"
       <*> v .: "direction"
       <*> v .: "description"
       <*> v .: "destination"

@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE TupleSections #-}
 
 module Main where
 
@@ -10,6 +11,7 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.STM
 import Control.Monad
 import Data.Char (toLower)
+import qualified Data.List as List
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Model
@@ -45,7 +47,7 @@ serverLoop sock worldObj = do
   _ <- forkIO $ do
     handle <- socketToHandle conn ReadWriteMode
     runClient handle worldObj
-    close conn
+    hClose handle
   serverLoop sock worldObj
 
 restoreWorld :: IO (World Snapshot)
@@ -71,7 +73,7 @@ runClient handle worldObj = do
       player <- atomically $ readTVar playerObj.var
       hPutStrLn handle $ "Welcome, " ++ player.name
 
-      look handle playerObj
+      look handle playerObj ""
       clientLoop handle worldObj playerObj
     Nothing -> do
       hPutStrLn handle $ "Could not find character."
@@ -81,7 +83,8 @@ login :: Handle -> Obj Live World -> IO (Maybe (Obj Live Player))
 login _handle worldObj = atomically (lookupPlayer worldObj colinKey)
 
 data Command = Command
-  { description :: String,
+  { bindings :: [String],
+    description :: String,
     hide :: Bool,
     continue :: Bool,
     action :: Handle -> [String] -> Obj Live World -> Obj Live Player -> IO ()
@@ -90,157 +93,126 @@ data Command = Command
 defaultCommand :: Command
 defaultCommand =
   Command
-    { description = "Invalid command",
+    { bindings = [],
+      description = "Invalid command",
       hide = False,
       continue = True,
       action = \_ _ _ _ -> return ()
     }
 
-commands :: Map String Command
+commands :: [Command]
 commands =
-  Map.fromList
-    [ ("l", lookCmd {hide = True}),
-      ("look", lookCmd),
-      ("n", northCmd {hide = True}),
-      ("north", northCmd),
-      ("s", southCmd {hide = True}),
-      ("south", southCmd),
-      ("e", eastCmd {hide = True}),
-      ("east", eastCmd),
-      ("w", westCmd {hide = True}),
-      ("west", westCmd),
-      ("i", inventoryCmd {hide = True}),
-      ("inv", inventoryCmd {hide = True}),
-      ("inventory", inventoryCmd),
-      ("g", takeCmd {hide = True}),
-      ("get", takeCmd {hide = True}),
-      ("t", takeCmd {hide = True}),
-      ("take", takeCmd),
-      ("p", dropCmd {hide = True}),
-      ("put", dropCmd {hide = True}),
-      ("d", dropCmd {hide = True}),
-      ("drop", dropCmd),
-      ("help", helpCmd),
-      ("h", helpCmd {hide = True}),
-      ("?", helpCmd {hide = True}),
-      ("q", quitCmd {hide = True}),
-      ("exit", quitCmd {hide = True}),
-      ("lo", quitCmd {hide = True}),
-      ("logout", quitCmd {hide = True}),
-      ("logoff", quitCmd {hide = True}),
-      ("quit", quitCmd)
-    ]
+  [ lookCmd,
+    northCmd,
+    southCmd,
+    eastCmd,
+    westCmd,
+    goCmd,
+    inventoryCmd,
+    takeCmd,
+    dropCmd,
+    helpCmd,
+    quitCmd
+  ]
+
+boundCommands :: Map String Command
+boundCommands =
+  Map.fromList $
+    concatMap (\cmd -> [(binding, cmd) | binding <- cmd.bindings]) commands
 
 lookCmd :: Command
 lookCmd =
   defaultCommand
-    { description =
-        unlines
-          [ "look: Look around",
-            "  abbreviated: l"
-          ],
-      action = \handle _ _ playerObj -> look handle playerObj
+    { bindings = ["l", "look"],
+      description = "look: Look around",
+      action = \handle args _ playerObj -> look handle playerObj (unwords args)
     }
 
 northCmd :: Command
 northCmd =
   defaultCommand
-    { description =
-        unlines
-          [ "north: Go north",
-            "  abbreviated: n"
-          ],
-      action = \handle _ _ playerObj -> go handle playerObj North
+    { bindings = ["n", "north"],
+      description = "north: Go north",
+      action = \handle _ _ playerObj -> go handle playerObj (Left North)
     }
 
 southCmd :: Command
 southCmd =
   defaultCommand
-    { description =
-        unlines
-          [ "south: Go south",
-            "  abbreviated: s"
-          ],
-      action = \handle _ _ playerObj -> go handle playerObj South
+    { bindings = ["s", "south"],
+      description = "south: Go south",
+      action = \handle _ _ playerObj -> go handle playerObj (Left South)
     }
 
 eastCmd :: Command
 eastCmd =
   defaultCommand
-    { description =
-        unlines
-          [ "east: Go east",
-            "  abbreviated: e"
-          ],
-      action = \handle _ _ playerObj -> go handle playerObj East
+    { bindings = ["e", "east"],
+      description = "east: Go east",
+      action = \handle _ _ playerObj -> go handle playerObj (Left East)
     }
 
 westCmd :: Command
 westCmd =
   defaultCommand
-    { description =
-        unlines
-          [ "west: Go west",
-            "  abbreviated: w"
+    { bindings = ["w", "west"],
+      description = "west: Go west",
+      action = \handle _ _ playerObj -> go handle playerObj (Left West)
+    }
+
+goCmd :: Command
+goCmd =
+  defaultCommand
+    { bindings = ["g", "go"],
+      description =
+        init $ unlines
+          [ "go <<way>>: Go some way",
+            "  example: \"go door\" or \"go ladder\""
           ],
-      action = \handle _ _ playerObj -> go handle playerObj West
+      action = \handle args _ playerObj -> go handle playerObj (Right (unwords args))
     }
 
 inventoryCmd :: Command
 inventoryCmd =
   defaultCommand
-    { description =
-        unlines
-          [ "inventory: Show your inventory",
-            "  abbreviated: inv, i"
-          ],
+    { bindings = ["i", "inv", "inventory"],
+      description = "inventory: Show your inventory",
       action = \handle _ _ playerObj -> inventory handle playerObj
     }
 
 takeCmd :: Command
 takeCmd =
   defaultCommand
-    { description =
-        unlines
-          [ "take: Take an item",
-            "  abbreviated: t, get, g"
-          ],
+    { bindings = ["t", "take"],
+      description = "take: Take an item",
       action = \handle args _ playerObj -> takeItem handle playerObj (unwords args)
     }
 
 dropCmd :: Command
 dropCmd =
   defaultCommand
-    { description =
-        unlines
-          [ "drop: Drop an item",
-            "  abbreviated: d, put, p"
-          ],
+    { bindings = ["d", "drop"],
+      description = "drop: Drop an item",
       action = \handle args _ playerObj -> dropItem handle playerObj (unwords args)
     }
 
 helpCmd :: Command
 helpCmd =
   defaultCommand
-    { description =
-        unlines
-          [ "help: Show this help message",
-            "  abbreviated: h, ?"
-          ],
+    { bindings = ["h", "help", "?"],
+      description = "help: Show this help message",
       action = \handle _ _ _ -> do
         hPutStrLn handle "Commands:"
-        forM_ (Map.toList commands) $ \(_, cmd) ->
-          unless cmd.hide $ hPutStrLn handle cmd.description
+        forM_ commands $ \cmd -> unless cmd.hide $ do
+          hPutStrLn handle cmd.description
+          hPutStrLn handle $ "  commands: " ++ List.intercalate ", " cmd.bindings
     }
 
 quitCmd :: Command
 quitCmd =
   defaultCommand
-    { description =
-        unlines
-          [ "quit: Quit the game",
-            "  abbreviated: q, exit, lo, logout, logoff"
-          ],
+    { bindings = ["q", "quit", "exit", "logout", "logoff", "lo"],
+      description = "quit: Quit the game",
       action = \handle _ _ _ -> hPutStrLn handle "Goodbye!",
       continue = False
     }
@@ -254,7 +226,7 @@ clientLoop handle worldObj playerObj = do
 
   case words cmdLine of
     [] -> clientLoop handle worldObj playerObj
-    (cmd : args) -> case Map.lookup (map toLower cmd) commands of
+    (cmd : args) -> case Map.lookup (map toLower cmd) boundCommands of
       Nothing -> do
         hPutStrLn handle "Unknown command"
         clientLoop handle worldObj playerObj
@@ -262,8 +234,58 @@ clientLoop handle worldObj playerObj = do
         action command handle args worldObj playerObj
         when (continue command) (clientLoop handle worldObj playerObj)
 
-look :: Handle -> Obj Live Player -> IO ()
-look handle playerObj = do
+look :: Handle -> Obj Live Player -> String -> IO ()
+look handle playerObj "" = lookRoom handle playerObj
+look handle playerObj "me" = lookSelf handle playerObj
+look handle playerObj targetName = do
+  response <- atomically $ do
+    player <- readTVar playerObj.var
+    room <- readTVar player.location.var
+    people <- mapM (\p -> (p,) <$> readTVar p.var) room.players
+    let matchingPeople =
+          filter
+            ( \(_, p) ->
+                any
+                  (== map toLower targetName)
+                  (map toLower p.name : words (map toLower p.name))
+            )
+            people
+    case matchingPeople of
+      (pObj, _) : _ -> return (lookPlayer handle pObj)
+      _ -> do
+        items <-
+          mapM
+            (\i -> (i,) <$> readTVar i.var)
+            (room.items ++ player.inventory)
+        let matchingItems =
+              filter
+                ( \(_, i) ->
+                    any
+                      (== map toLower targetName)
+                      (map toLower i.name : map (map toLower) i.nicknames)
+                )
+                items
+        case matchingItems of
+          (iObj, _) : _ -> return (lookItem handle iObj)
+          _ -> do
+            let matchingExits =
+                  filter
+                    ( \e ->
+                        any
+                          (== map toLower targetName)
+                          (map toLower e.name : map (map toLower) e.nicknames)
+                    )
+                    room.exits
+            case matchingExits of
+              exit : _ -> return (lookExit handle exit)
+              _ -> return $ do
+                hPutStrLn handle $
+                  "Could not find anything called " ++ targetName ++ "."
+                return ()
+  response
+
+lookRoom :: Handle -> Obj Live Player -> IO ()
+lookRoom handle playerObj = do
   (room, people, items) <- atomically $ do
     player <- readTVar playerObj.var
     room <- readTVar player.location.var
@@ -278,31 +300,80 @@ look handle playerObj = do
       Nothing -> return ()
       Just direction -> do
         hPutStrLn handle $
-          "You can go " ++ show direction ++ " to " ++ exit.name ++ "."
+          "You can go " ++ map toLower (show direction) ++ " to " ++ exit.name
   forM_ people $ \p -> hPutStrLn handle $ p.name ++ " is here."
   forM_ items $ \i -> hPutStrLn handle $ "There is a " ++ i.name ++ " here."
 
-go :: Handle -> Obj Live Player -> Direction -> IO ()
-go handle playerObj dir = do
+lookSelf :: Handle -> Obj Live Player -> IO ()
+lookSelf handle playerObj = do
+  (player, items) <- atomically $ do
+    player <- readTVar playerObj.var
+    items <- mapM (\i -> readTVar i.var) player.inventory
+    return (player, items)
+  hPutStrLn handle $ "You are " ++ player.name ++ "."
+  hPutStrLn handle player.description
+  forM_ items $ \i -> hPutStrLn handle $ "You have " ++ i.name ++ "."
+  return ()
+
+lookPlayer :: Handle -> Obj Live Player -> IO ()
+lookPlayer handle playerObj = do
+  (player, items) <- atomically $ do
+    player <- readTVar playerObj.var
+    items <- mapM (\i -> readTVar i.var) player.inventory
+    return (player, items)
+  hPutStrLn handle $ "You see " ++ player.name ++ "."
+  hPutStrLn handle player.description
+  forM_ items $ \i -> hPutStrLn handle $ player.name ++ " has " ++ i.name ++ "."
+  return ()
+
+lookItem :: Handle -> Obj Live Item -> IO ()
+lookItem handle itemObj = do
+  item <- atomically $ readTVar itemObj.var
+  hPutStrLn handle $ "You see a " ++ item.name ++ "."
+  hPutStrLn handle item.description
+  return ()
+
+lookExit :: Handle -> Exit Live -> IO ()
+lookExit handle exit = do
+  case exit.direction of
+    Nothing -> hPutStrLn handle $ "You see a " ++ exit.name ++ "."
+    Just direction -> do
+      hPutStrLn handle $
+        "You see a "
+          ++ exit.name
+          ++ " to the "
+          ++ map toLower (show direction)
+          ++ "."
+
+  hPutStrLn handle exit.description
+  return ()
+
+go :: Handle -> Obj Live Player -> Either Direction String -> IO ()
+go handle playerObj target = do
   success <- atomically $ do
     player <- readTVar playerObj.var
     let hereObj = player.location
     here <- readTVar hereObj.var
-    let directedExits = filter (\e -> e.direction == Just dir) here.exits
+    let directedExits = filter (matchesTarget target) here.exits
     case directedExits of
       [] -> return False
       (exit : _) -> do
         setPlayerLocation playerObj exit.destination
         return True
   case success of
-    True -> look handle playerObj
+    True -> look handle playerObj ""
     False -> hPutStrLn handle "You can't go that way!"
+  where
+    matchesTarget (Left dir) exit = exit.direction == Just dir
+    matchesTarget (Right way) exit =
+      map toLower way `elem` map (map toLower) (exit.name : exit.nicknames)
 
 inventory :: Handle -> Obj Live Player -> IO ()
 inventory handle playerObj = do
   items <- atomically $ do
     player <- readTVar playerObj.var
     traverse (\i -> readTVar i.var) player.inventory
+  when (null items) $ hPutStrLn handle $ "You are not carrying anything."
   forM_ items $ \i -> hPutStrLn handle $ i.name ++ " is in your inventory."
 
 takeItem :: Handle -> Obj Live Player -> String -> IO ()
