@@ -1,115 +1,81 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
 module Sample where
 
-import qualified Data.Map.Strict as Map
-import Data.Maybe
-import Data.UUID
+import Edgy
 import Model
 
-sampleWorld :: World Snapshot
-sampleWorld =
-  World
-    { rooms =
-        ( Map.fromList
-            [ ( naveKey,
-                Room
-                  { name = "The Nave",
-                    description =
-                      unlines
-                        [ "This is the central part of the cathedral.  There are",
-                          "pews all around you, and a picturesque altar at the",
-                          "front."
-                        ],
-                    exits =
-                      [ Exit
-                          { name = "Ornate Door",
-                            nicknames = ["door"],
-                            direction = Just North,
-                            description = "An ornate door stands at the cathedral entrance.",
-                            destination = vestibuleKey
-                          }
-                      ],
-                    items = [],
-                    players = [colinKey]
-                  }
-              ),
-              ( vestibuleKey,
-                Room
-                  { name = "The Vestibule",
-                    description =
-                      unlines
-                        [ "This is a small antechamber just inside the cathedral.",
-                          "A large painting depicts the baptism of a young girl",
-                          "with angels surrounding her."
-                        ],
-                    exits =
-                      [ Exit
-                          { name = "Ornate Door",
-                            nicknames = ["door"],
-                            direction = Just South,
-                            description = "An ornate door leads further into the cathedral.",
-                            destination = naveKey
-                          }
-                      ],
-                    items = [crystalKey],
-                    players = []
-                  }
-              )
-            ]
-        ),
-      players =
-        ( Map.fromList
-            [ ( colinKey,
-                Player
-                  { name = "Colin Elfwatcher",
-                    description =
-                      unlines
-                        [ "A tall and lanky figure, Colin is dressed in a rough",
-                          "linen tunic, and wears a short sword at his side."
-                        ],
-                    location = naveKey,
-                    inventory = [bowKey]
-                  }
-              )
-            ]
-        ),
-      items =
-        ( Map.fromList
-            [ ( bowKey,
-                Item
-                  { name = "Bow of Power",
-                    nicknames = ["bow"],
-                    description = "This bow gives off a soft white glow.",
-                    location = (Left colinKey)
-                  }
-              ),
-              ( crystalKey,
-                Item
-                  { name = "Corrupted Crystal",
-                    nicknames = ["crystal"],
-                    description = "The crystal pulses with dark energy like a beating heart.",
-                    location = (Right vestibuleKey)
-                  }
-              )
-            ]
-        )
-    }
+bigBang :: Edgy MUDSchema (Node MUDSchema Universe)
+bigBang = do
+  universe <- getUniverse
 
-naveKey :: Obj Snapshot Room
-naveKey = Ref $ fromJust $ fromString "a0a0a0a0-a0a0-a0a0-a0a0-a0a0a0a0a0a0"
+  nave <- newNode @"Room"
+  setAttribute @"name" nave "The Nave"
+  setAttribute @"description" nave $
+    unlines
+      [ "This is the central part of the cathedral.  There are",
+        "pews all around you, and a picturesque altar at the",
+        "front."
+      ]
 
-vestibuleKey :: Obj Snapshot Room
-vestibuleKey = Ref $ fromJust $ fromString "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1"
+  vestibule <- newNode @"Room"
+  setAttribute @"name" vestibule "The Vestibule"
+  setAttribute @"description" vestibule $
+    unlines
+      [ "This is a small antechamber just inside the cathedral.",
+        "A large painting depicts the baptism of a young girl",
+        "with angels surrounding her."
+      ]
 
-colinKey :: Obj Snapshot Player
-colinKey = Ref $ fromJust $ fromString "b0b0b0b0-b0b0-b0b0-b0b0-b0b0b0b0b0b0"
+  doorToVestibule <- newNode @"Exit"
+  setAttribute @"name" doorToVestibule "Ornate Door"
+  setAttribute @"nicknames" doorToVestibule ["door"]
+  setAttribute @"description"
+    doorToVestibule
+    "An ornate door stands at the cathedral entrance."
+  setAttribute @"direction" doorToVestibule (Just North)
 
-bowKey :: Obj Snapshot Item
-bowKey = Ref $ fromJust $ fromString "c0c0c0c0-c0c0-c0c0-c0c0-c0c0c0c0c0c0"
+  addRelated @"exit" nave doorToVestibule
+  addRelated @"destination" doorToVestibule vestibule
 
-crystalKey :: Obj Snapshot Item
-crystalKey = Ref $ fromJust $ fromString "c1c1c1c1-c1c1-c1c1-c1c1-c1c1c1c1c1c1"
+  doorToNave <- newNode @"Exit"
+  setAttribute @"name" doorToNave "Ornate Door"
+  setAttribute @"nicknames" doorToNave ["door"]
+  setAttribute @"description"
+    doorToNave
+    "An ornate door leads further into the cathedral."
+  setAttribute @"direction" doorToNave (Just South)
+
+  addRelated @"exit" vestibule doorToNave
+  addRelated @"destination" doorToNave nave
+
+  crystal <- newNode @"Item"
+  setAttribute @"name" crystal "Corrupted Crystal"
+  setAttribute @"nicknames" crystal ["crystal"]
+  setAttribute @"description"
+    crystal
+    "The crystal pulses with dark energy like a beating heart."
+
+  bow <- newNode @"Item"
+  setAttribute @"name" bow "Bow of Power"
+  setAttribute @"nicknames" bow ["bow"]
+  setAttribute @"description" bow "This bow gives off a soft white glow."
+
+  addRelated @"contents" vestibule crystal
+
+  colin <- newNode @"Player"
+  setAttribute @"name" colin "Colin Elfwatcher"
+  setAttribute @"description" colin $
+    unlines
+      [ "A tall and lanky figure, Colin is dressed in a rough",
+        "linen tunic, and wears a short sword at his side."
+      ]
+
+  addRelated @"population" nave colin
+  addRelated @"inventory" colin bow
+
+  return universe
