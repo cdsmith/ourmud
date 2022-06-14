@@ -13,12 +13,7 @@ data Direction = North | South | East | West deriving (Eq, Ord, Show, Generic)
 instance Binary Direction
 
 type MUDSchema =
-  '[ DefDirected "exit" Many (DataNode "Exit") "source" One (DataNode "Room"),
-     DefDirected "entrance" Many (DataNode "Exit") "destination" One (DataNode "Room"),
-     DefDirected "inventory" Many (DataNode "Item") "owner" Optional (DataNode "Player"),
-     DefDirected "contents" Many (DataNode "Item") "location" Optional (DataNode "Room"),
-     DefDirected "location" One (DataNode "Room") "population" Many (DataNode "Player"),
-     DefNode
+  '[ DefNode
        (DataNode "Player")
        '[ "name" ::: String,
           "description" ::: String
@@ -40,5 +35,40 @@ type MUDSchema =
        '[ "name" ::: String,
           "nicknames" ::: [String],
           "description" ::: String
-        ]
+        ],
+     DefDirected
+       "exit"
+       Many
+       (DataNode "Exit")
+       "source"
+       One
+       (DataNode "Room"),
+     DefDirected
+       "entrance"
+       Many
+       (DataNode "Exit")
+       "destination"
+       One
+       (DataNode "Room"),
+     DefDirected
+       "inventory"
+       Many
+       (DataNode "Item")
+       "owner"
+       Optional
+       (DataNode "Player"),
+     DefDirected
+       "contents"
+       Many
+       (DataNode "Item")
+       "location"
+       Optional
+       (DataNode "Room"),
+     DefDirected
+       "location"
+       One
+       (DataNode "Room")
+       "population"
+       Many
+       (DataNode "Player")
    ]

@@ -27,4 +27,3 @@ executable ourmud
     ghc-options:      -Wall
                       -Wno-ambiguous-fields
                       -Wno-unticked-promoted-constructors
-                      -fsimpl-tick-factor=5000
