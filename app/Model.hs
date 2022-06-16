@@ -29,7 +29,7 @@ type MUDSchema =
        '[ "name" ::: String,
           "nicknames" ::: [String],
           "description" ::: String,
-          "direction" ::: (Maybe Direction)
+          "direction" ::: Maybe Direction
         ],
      DefNode
        (DataNode "Item")
@@ -38,45 +38,21 @@ type MUDSchema =
           "description" ::: String
         ],
      DefDirected
-       "start"
-       One
-       (DataNode "Room")
-       "inUniverse"
-       One
-       Universe,
+       (Relation "start" One (DataNode "Room"))
+       (Relation "inUniverse" One Universe),
      DefDirected
-       "exit"
-       Many
-       (DataNode "Exit")
-       "source"
-       One
-       (DataNode "Room"),
+       (Relation "exit" Many (DataNode "Exit"))
+       (Relation "source" One (DataNode "Room")),
      DefDirected
-       "entrance"
-       Many
-       (DataNode "Exit")
-       "destination"
-       One
-       (DataNode "Room"),
+       (Relation "entrance" Many (DataNode "Exit"))
+       (Relation "destination" One (DataNode "Room")),
      DefDirected
-       "inventory"
-       Many
-       (DataNode "Item")
-       "owner"
-       Optional
-       (DataNode "Player"),
+       (Relation "inventory" Many (DataNode "Item"))
+       (Relation "owner" Optional (DataNode "Player")),
      DefDirected
-       "contents"
-       Many
-       (DataNode "Item")
-       "location"
-       Optional
-       (DataNode "Room"),
+       (Relation "contents" Many (DataNode "Item"))
+       (Relation "location" Optional (DataNode "Room")),
      DefDirected
-       "location"
-       One
-       (DataNode "Room")
-       "population"
-       Many
-       (DataNode "Player")
+       (Relation "location" One (DataNode "Room"))
+       (Relation "population" Many (DataNode "Player"))
    ]
