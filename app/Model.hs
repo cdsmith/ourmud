@@ -8,7 +8,7 @@ import Data.Binary
 import Edgy
 import GHC.Generics (Generic)
 
-data Direction = North | South | East | West deriving (Eq, Ord, Show, Generic)
+data Direction = North | South | East | West deriving (Eq, Show, Generic)
 
 instance Binary Direction
 
@@ -39,7 +39,7 @@ type MUDSchema =
         ],
      DefDirected
        (Relation "start" One (DataNode "Room"))
-       (Relation "inUniverse" One Universe),
+       (Relation "startUniverse" One Universe),
      DefDirected
        (Relation "exit" Many (DataNode "Exit"))
        (Relation "source" One (DataNode "Room")),
@@ -48,7 +48,7 @@ type MUDSchema =
        (Relation "destination" One (DataNode "Room")),
      DefDirected
        (Relation "inventory" Many (DataNode "Item"))
-       (Relation "owner" Optional (DataNode "Player")),
+       (Relation "carrier" Optional (DataNode "Player")),
      DefDirected
        (Relation "contents" Many (DataNode "Item"))
        (Relation "location" Optional (DataNode "Room")),
