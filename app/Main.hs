@@ -57,11 +57,12 @@ serverLoop sock = do
 
 runClient :: Client -> IO ()
 runClient client = do
+  writeClient client "Welcome to Shae and Chris's MUD!"
+  writeClient client "Type 'help' for a list of commands."
+  writeClient client ""
   login client >>= \case
     Just player -> do
       atomically $ do
-        name <- runEdgy $ getAttribute @"name" player
-        writeClient client $ "Welcome, " ++ name
         runEdgy $ look client player ""
       clientLoop client player
     Nothing -> do
@@ -70,7 +71,7 @@ runClient client = do
 
 login :: Client -> IO (Maybe (Node MUDSchema (DataNode "Player")))
 login client = do
-  map toLower <$> readClient client "New or existing character?" >>= \case
+  map toLower <$> readClient client "New or existing character? " >>= \case
     "new" -> do
       name <- readClient client "Name: "
       password <- readClient client "Password: "
@@ -80,6 +81,7 @@ login client = do
           player <- newNode @MUDSchema @"Player" name password desc
           room <- getRelated @"start" =<< getUniverse
           setRelated @"location" player room
+          writeClient client $ "Welcome, " ++ name ++ "!"
           return (Just player)
     "existing" -> do
       name <- readClient client "Name: "
@@ -94,7 +96,7 @@ login client = do
               correctPassword <- getAttribute @"password" player
               case password == correctPassword of
                 True -> do
-                  writeClient client $ "Welcome back, " ++ name
+                  writeClient client $ "Welcome back, " ++ name ++ "!"
                   return (Just player)
                 False -> do
                   writeClient client $ "Sorry, wrong password."

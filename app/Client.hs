@@ -51,12 +51,13 @@ newClient handle = do
       (result, prompt) <-
         atomically $
           (,)
-            <$> readTChan input
+            <$> readTChan output
             <*> readTVar promptVar
-      hPutStrLn handle result
       case prompt of
-        Nothing -> return ()
+        Nothing -> hPutStrLn handle result
         Just p -> do
+          hPutStrLn handle ""
+          hPutStrLn handle result
           hPutStr handle p
           hFlush handle
   let client =
@@ -73,6 +74,8 @@ newClient handle = do
 readClient :: Client -> Prompt -> IO String
 readClient client prompt = do
   atomically $ do
+    outputDone <- isEmptyTChan (clientOutput client)
+    unless outputDone retry
     readTVar (clientPrompt client) >>= \case
       Just _ -> retry
       Nothing -> do
