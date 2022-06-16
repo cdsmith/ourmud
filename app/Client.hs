@@ -4,10 +4,10 @@ module Client where
 
 import Control.Concurrent (ThreadId, forkIO, killThread)
 import Control.Concurrent.STM
-  ( STM,
-    TChan,
+  ( TChan,
     TVar,
     atomically,
+    isEmptyTChan,
     newTChanIO,
     newTVarIO,
     readTChan,
@@ -16,7 +16,8 @@ import Control.Concurrent.STM
     writeTChan,
     writeTVar,
   )
-import Control.Monad (forever)
+import Control.Monad (forever, unless)
+import Control.Monad.STM.Class (MonadSTM (..))
 import Data.List.Extra (trim)
 import System.IO (Handle, hClose, hFlush, hGetLine, hPutStr, hPutStrLn)
 
@@ -78,11 +79,14 @@ readClient client prompt = do
         writeTVar (clientPrompt client) (Just prompt)
   atomically $ readTChan (clientInput client)
 
-writeClient :: Client -> String -> STM ()
-writeClient client str = writeTChan (clientOutput client) str
+writeClient :: MonadSTM m => Client -> String -> m ()
+writeClient client str = liftSTM $ writeTChan (clientOutput client) str
 
 closeClient :: Client -> IO ()
 closeClient client = do
+  atomically $ do
+    empty <- isEmptyTChan (clientOutput client)
+    unless empty retry
   killThread (clientInputThread client)
   killThread (clientOutputThread client)
   hClose (clientHandle client)

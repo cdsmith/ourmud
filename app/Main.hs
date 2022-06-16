@@ -94,18 +94,16 @@ login client = do
               correctPassword <- getAttribute @"password" player
               case password == correctPassword of
                 True -> do
-                  liftSTM $ writeClient client $ "Welcome back, " ++ name
+                  writeClient client $ "Welcome back, " ++ name
                   return (Just player)
                 False -> do
-                  liftSTM $ writeClient client $ "Sorry, wrong password"
+                  writeClient client $ "Sorry, wrong password."
                   return Nothing
             [] -> do
-              liftSTM $ writeClient client $ "Sorry, no such character"
+              writeClient client "Sorry, no such character."
               return Nothing
             _ -> do
-              liftSTM $
-                writeClient client $
-                  "Sorry, multiple characters with that name."
+              writeClient client "Sorry, multiple characters with that name."
               return Nothing
     _ -> do
       atomically $ writeClient client $ "Didn't recognize your answer."
@@ -116,7 +114,11 @@ data Command = Command
     description :: String,
     hide :: Bool,
     continue :: Bool,
-    action :: Client -> [String] -> Node MUDSchema (DataNode "Player") -> Edgy MUDSchema ()
+    action ::
+      Client ->
+      [String] ->
+      Node MUDSchema (DataNode "Player") ->
+      Edgy MUDSchema ()
   }
 
 defaultCommand :: Command
@@ -231,7 +233,7 @@ helpCmd =
   defaultCommand
     { bindings = ["h", "help", "?"],
       description = "help: Show this help message",
-      action = \client _ _ -> liftSTM $ do
+      action = \client _ _ -> do
         writeClient client "Commands:"
         forM_ commands $ \cmd -> unless cmd.hide $ do
           writeClient client cmd.description
@@ -244,7 +246,7 @@ quitCmd =
   defaultCommand
     { bindings = ["q", "quit", "exit", "logout", "logoff", "lo"],
       description = "quit: Quit the game",
-      action = \client _ _ -> liftSTM $ writeClient client "Goodbye!",
+      action = \client _ _ -> writeClient client "Goodbye!",
       continue = False
     }
 
@@ -283,21 +285,20 @@ look client player targetName = do
           case exits of
             exit : _ -> lookExit client exit
             _ ->
-              liftSTM $
-                writeClient client $
-                  "Could not find anything called " ++ targetName ++ "."
+              writeClient client $
+                "Could not find anything called " ++ targetName ++ "."
 
 lookRoom :: Client -> Node MUDSchema (DataNode "Player") -> Edgy MUDSchema ()
 lookRoom client player = do
   room <- getRelated @"location" player
-  liftSTM . writeClient client
+  writeClient client
     =<< (\n -> "You are in " ++ n ++ ".") <$> getAttribute @"name" room
-  liftSTM . writeClient client =<< getAttribute @"description" room
+  writeClient client =<< getAttribute @"description" room
   exits <- getRelated @"exit" room
   for_ exits $ \exit ->
     getAttribute @"direction" exit >>= \case
       Just dir ->
-        liftSTM . writeClient client
+        writeClient client
           =<< ( \n ->
                   "You can go "
                     ++ map toLower (show dir)
@@ -307,60 +308,60 @@ lookRoom client player = do
               )
           <$> getAttribute @"name" exit
       Nothing ->
-        liftSTM . writeClient client
+        writeClient client
           =<< (\n -> "You can go to " ++ n ++ ".")
           <$> getAttribute @"name" exit
   people <- filter (/= player) <$> getRelated @"population" room
   for_ people $ \person ->
-    liftSTM . writeClient client
+    writeClient client
       =<< (\n -> n ++ " is here.") <$> getAttribute @"name" person
   items <- getRelated @"contents" room
   for_ items $ \item ->
-    liftSTM . writeClient client
+    writeClient client
       =<< (\n -> "There is a " ++ n ++ " here.") <$> getAttribute @"name" item
 
 lookSelf :: Client -> Node MUDSchema (DataNode "Player") -> Edgy MUDSchema ()
 lookSelf client player = do
-  liftSTM . writeClient client
+  writeClient client
     =<< (\n -> "You are " ++ n ++ ".") <$> getAttribute @"name" player
-  liftSTM . writeClient client =<< getAttribute @"description" player
+  writeClient client =<< getAttribute @"description" player
   items <- getRelated @"inventory" player
   for_ items $ \item ->
-    liftSTM . writeClient client
+    writeClient client
       =<< (\n -> "You are carrying a " ++ n ++ ".")
       <$> getAttribute @"name" item
 
 lookPlayer :: Client -> Node MUDSchema (DataNode "Player") -> Edgy MUDSchema ()
 lookPlayer client player = do
   name <- getAttribute @"name" player
-  liftSTM $ writeClient client $ "You see " ++ name ++ "."
-  liftSTM . writeClient client =<< getAttribute @"description" player
+  writeClient client $ "You see " ++ name ++ "."
+  writeClient client =<< getAttribute @"description" player
   items <- getRelated @"inventory" player
   for_ items $ \item ->
-    liftSTM . writeClient client
+    writeClient client
       =<< (\n -> name ++ " is carrying a " ++ n ++ ".")
       <$> getAttribute @"name" item
 
 lookItem :: Client -> Node MUDSchema (DataNode "Item") -> Edgy MUDSchema ()
 lookItem client item = do
-  liftSTM . writeClient client
+  writeClient client
     =<< (\n -> "You see " ++ n ++ ".")
     <$> getAttribute @"name" item
-  liftSTM . writeClient client =<< getAttribute @"description" item
+  writeClient client =<< getAttribute @"description" item
 
 lookExit :: Client -> Node MUDSchema (DataNode "Exit") -> Edgy MUDSchema ()
 lookExit client exit = do
   name <- getAttribute @"name" exit
   getAttribute @"direction" exit >>= \case
     Just direction ->
-      liftSTM . writeClient client $
+      writeClient client $
         "You see a "
           ++ name
           ++ " to the "
           ++ map toLower (show direction)
           ++ "."
-    Nothing -> liftSTM . writeClient client $ "You see a " ++ name ++ "."
-  liftSTM . writeClient client =<< getAttribute @"description" exit
+    Nothing -> writeClient client $ "You see a " ++ name ++ "."
+  writeClient client =<< getAttribute @"description" exit
 
 go ::
   Client ->
@@ -373,7 +374,7 @@ go client player target = do
       =<< getRelated @"exit"
       =<< getRelated @"location" player
   case exits of
-    [] -> liftSTM $ writeClient client "You can't go that way!"
+    [] -> writeClient client "You can't go that way!"
     (exit : _) -> do
       destination <- getRelated @"destination" exit
       setRelated @"location" player destination
@@ -391,9 +392,9 @@ inventory :: Client -> Node MUDSchema (DataNode "Player") -> Edgy MUDSchema ()
 inventory client player = do
   items <- traverse (getAttribute @"name") =<< getRelated @"inventory" player
   when (null items) $
-    liftSTM $ writeClient client $ "You are not carrying anything."
+    writeClient client $ "You are not carrying anything."
   forM_ items $ \item ->
-    liftSTM $ writeClient client $ item ++ " is in your inventory."
+    writeClient client $ item ++ " is in your inventory."
 
 takeItem ::
   Client -> Node MUDSchema (DataNode "Player") -> String -> Edgy MUDSchema ()
@@ -403,11 +404,11 @@ takeItem client player itemName = do
       =<< getRelated @"contents"
       =<< getRelated @"location" player
   case items of
-    [] -> liftSTM $ writeClient client "You can't find that item!"
+    [] -> writeClient client "You can't find that item!"
     (item : _) -> do
       addRelated @"inventory" player item
       clearRelated @"location" item
-      liftSTM . writeClient client
+      writeClient client
         =<< (\n -> "You pick up " ++ n ++ ".") <$> getAttribute @"name" item
 
 dropItem ::
@@ -418,12 +419,11 @@ dropItem ::
 dropItem client player itemName = do
   items <- filterM (goesBy itemName) =<< getRelated @"inventory" player
   case items of
-    [] -> liftSTM $ writeClient client "You aren't carrying that item!"
+    [] -> writeClient client "You aren't carrying that item!"
     (item : _) -> do
-      here <- getRelated @"location" player
       removeRelated @"inventory" player item
-      addRelated @"contents" here item
-      liftSTM . writeClient client
+      setRelated @"location" item =<< Just <$> getRelated @"location" player
+      writeClient client
         =<< (\n -> "You drop " ++ n ++ ".") <$> getAttribute @"name" item
 
 goesBy ::
