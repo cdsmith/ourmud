@@ -16,6 +16,7 @@ type MUDSchema =
   '[ DefNode
        (DataNode "Player")
        '[ "name" ::: String,
+          "password" ::: String,
           "description" ::: String
         ],
      DefNode
@@ -36,6 +37,13 @@ type MUDSchema =
           "nicknames" ::: [String],
           "description" ::: String
         ],
+     DefDirected
+       "start"
+       One
+       (DataNode "Room")
+       "inUniverse"
+       One
+       Universe,
      DefDirected
        "exit"
        Many

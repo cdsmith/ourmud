@@ -23,6 +23,7 @@ import Model
 import Network.Socket
 import Sample
 import System.IO
+import Data.List.Extra (trim)
 
 main :: IO ()
 main = do
@@ -67,14 +68,36 @@ runClient handle = do
       return ()
 
 login :: Handle -> IO (Maybe (Node MUDSchema (DataNode "Player")))
-login _handle = atomically $
-  runEdgy @MUDSchema $ do
-    universe <- getUniverse
-    players <- getRelated @"Player" universe
-    matches <- filterM (fmap (== "Colin Elfwatcher") . getAttribute @"name") players
-    case matches of
-      [player] -> return (Just player)
-      _ -> return Nothing
+login handle = do
+  hPutStrLn handle "New or existing character?"
+  fmap trim (hGetLine handle) >>= \case
+    "new" -> do
+      hPutStrLn handle "Name?"
+      name <- fmap trim (hGetLine handle)
+      hPutStrLn handle "Password?"
+      password <- fmap trim (hGetLine handle)
+      hPutStrLn handle "Description?"
+      desc <- fmap trim (hGetLine handle)
+      atomically $ runEdgy $ do
+        player <- newNode @MUDSchema @"Player" name password desc
+        universe <- getUniverse
+        room <- getRelated @"start" universe
+        setRelated @"location" player room
+        return (Just player)
+    "existing" -> do
+      hPutStrLn handle "Name?"
+      name <- fmap trim (hGetLine handle)
+      hPutStrLn handle "Password?"
+      _ <- fmap trim (hGetLine handle)
+      atomically $ runEdgy $ do
+        universe <- getUniverse
+        players <- getRelated @"Player" universe
+        matches <- filterM (fmap (== name) . getAttribute @"name") players
+        case matches of
+          [player] -> return (Just player)
+          _ -> return Nothing
+    _ -> do
+      return Nothing
 
 data Command = Command
   { bindings :: [String],

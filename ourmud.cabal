@@ -16,6 +16,7 @@ executable ourmud
                       bytestring,
                       containers,
                       directory,
+                      extra,
                       network,
                       stm,
                       text,

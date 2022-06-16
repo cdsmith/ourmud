@@ -11,6 +11,8 @@ import Model
 
 bigBang :: Edgy MUDSchema (Node MUDSchema Universe)
 bigBang = do
+  universe <- getUniverse
+
   nave <-
     newNode @MUDSchema @"Room" "The Nave" $
       unlines
@@ -59,17 +61,9 @@ bigBang = do
       ["bow"]
       "This bow gives off a soft white glow."
 
-  addRelated @"contents" vestibule crystal
+  setRelated @"location" crystal (Just vestibule)
+  setRelated @"location" bow (Just nave)
 
-  colin <-
-    newNode @MUDSchema @"Player"
-      "Colin Elfwatcher"
-      $ unlines
-        [ "A tall and lanky figure, Colin is dressed in a rough",
-          "linen tunic, and wears a short sword at his side."
-        ]
+  setRelated @"start" universe nave
 
-  addRelated @"population" nave colin
-  addRelated @"inventory" colin bow
-
-  getUniverse
+  return universe
