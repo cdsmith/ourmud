@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 
 module Client where
@@ -19,6 +20,8 @@ import Control.Concurrent.STM
 import Control.Monad (forever, unless)
 import Control.Monad.STM.Class (MonadSTM (..))
 import Data.List.Extra (trim)
+import Edgy (Node, NodeType (..))
+import Model (MUDSchema)
 import System.IO (Handle, hClose, hFlush, hGetLine, hPutStr, hPutStrLn)
 
 data Client = Client
@@ -27,7 +30,8 @@ data Client = Client
     clientOutputThread :: ThreadId,
     clientPrompt :: TVar (Maybe Prompt),
     clientInput :: TChan String,
-    clientOutput :: TChan String
+    clientOutput :: TChan String,
+    clientPlayer :: TVar (Maybe (Node MUDSchema (DataNode "Player")))
   }
 
 type Prompt = String
@@ -60,6 +64,7 @@ newClient handle = do
           hPutStrLn handle result
           hPutStr handle p
           hFlush handle
+  playerVar <- newTVarIO Nothing
   let client =
         Client
           { clientHandle = handle,
@@ -67,7 +72,8 @@ newClient handle = do
             clientOutputThread = outputThread,
             clientPrompt = promptVar,
             clientInput = input,
-            clientOutput = output
+            clientOutput = output,
+            clientPlayer = playerVar
           }
   return client
 

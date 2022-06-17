@@ -57,3 +57,6 @@ getPlayerClient ::
   m (Maybe Client)
 getPlayerClient state player =
   Map.lookup player <$> liftSTM (readTVar (playersOnline state))
+
+getAllClients :: (Monad m, MonadSTM m) => ServerState -> m [Client]
+getAllClients state = Map.elems <$> liftSTM (readTVar (playersOnline state))

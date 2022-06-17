@@ -10,21 +10,36 @@
 
 module Main where
 
-import Client (Client, closeClient, newClient, readClient, writeClient)
+import Client
+  ( Client (..),
+    closeClient,
+    newClient,
+    readClient,
+    writeClient,
+  )
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM
 import Control.Monad
+import Control.Monad.STM.Class (liftSTM)
 import Data.Char (toLower)
 import Data.Foldable (for_)
 import qualified Data.List as List
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (catMaybes)
 import Data.TCache (atomicallySync)
 import Edgy
 import Model
 import Network.Socket
 import Sample
-import ServerState (ServerState, getPlayerClient, isPlayerOnline, newServerState, withClient)
+import ServerState
+  ( ServerState,
+    getAllClients,
+    getPlayerClient,
+    isPlayerOnline,
+    newServerState,
+    withClient,
+  )
 import System.IO
 
 main :: IO ()
@@ -67,6 +82,7 @@ runClient serverState client = do
       conflict <- withClient serverState player client $ do
         atomically $
           runEdgy $ do
+            liftSTM $ writeTVar (clientPlayer client) (Just player)
             announceToRoom serverState player (++ " magically appears.")
             look serverState client player ""
         clientLoop serverState client player
@@ -92,22 +108,51 @@ announceToRoom serverState player message = do
       Just client -> writeClient client (message name)
       Nothing -> return ()
 
+announceToAll ::
+  ServerState ->
+  Node MUDSchema (DataNode "Player") ->
+  (String -> String) ->
+  Edgy MUDSchema ()
+announceToAll serverState player message = do
+  name <- getAttribute @"name" player
+  clients <-
+    filterM (fmap (maybe False (/= player)) . liftSTM . readTVar . clientPlayer)
+      =<< getAllClients serverState
+  for_ clients $ \client -> writeClient client (message name)
+
 login :: Client -> IO (Maybe (Node MUDSchema (DataNode "Player")))
 login client = do
-  map toLower <$> readClient client "New or existing character? " >>= \case
+  name <- readClient client "Name (or \"new\"): "
+  case map toLower name of
     "new" -> do
-      name <- readClient client "Name: "
-      password <- readClient client "Password: "
-      desc <- readClient client "Description: "
-      atomicallySync $
+      realName <- readClient client "Name: "
+      alreadyExists <- atomically $
         runEdgy $ do
-          player <- newNode @MUDSchema @"Player" name password desc
-          room <- getRelated @"start" =<< getUniverse
-          setRelated @"location" player room
-          writeClient client $ "Welcome, " ++ name ++ "!"
-          return (Just player)
-    "existing" -> do
-      name <- readClient client "Name: "
+          universe <- getUniverse
+          getRelated @"Player" universe >>= filterM (named realName) >>= \case
+            [] -> return False
+            _ -> return True
+      case alreadyExists of
+        True -> do
+          writeClient client "That name is already taken."
+          login client
+        False -> do
+          password <- readClient client "Password: "
+          confirm <- readClient client "Confirm Password: "
+          case password == confirm of
+            False -> do
+              writeClient client "Passwords do not match."
+              login client
+            True -> do
+              desc <- readClient client "Description: "
+              atomicallySync $
+                runEdgy $ do
+                  player <- newNode @MUDSchema @"Player" realName password desc
+                  room <- getRelated @"start" =<< getUniverse
+                  setRelated @"location" player room
+                  writeClient client $ "Welcome, " ++ realName ++ "!"
+                  return (Just player)
+    _ -> do
       password <- readClient client "Password: "
       atomically $
         runEdgy $ do
@@ -129,10 +174,8 @@ login client = do
               return Nothing
             _ -> do
               writeClient client "Sorry, multiple characters with that name."
+              writeClient client "Please report this as a bug."
               return Nothing
-    _ -> do
-      atomically $ writeClient client $ "Didn't recognize your answer."
-      return Nothing
 
 data Command = Command
   { bindings :: [String],
@@ -169,6 +212,9 @@ commands =
     takeCmd,
     dropCmd,
     sayCmd,
+    shoutCmd,
+    emoteCmd,
+    whoCmd,
     helpCmd,
     quitCmd
   ]
@@ -182,7 +228,7 @@ lookCmd :: Command
 lookCmd =
   defaultCommand
     { bindings = ["l", "look"],
-      description = "look: Look around",
+      description = "Look around",
       action = \serverState client args player ->
         look serverState client player (unwords args)
     }
@@ -191,7 +237,7 @@ northCmd :: Command
 northCmd =
   defaultCommand
     { bindings = ["n", "north"],
-      description = "north: Go north",
+      description = "Go north",
       action = \serverState client _ player ->
         go serverState client player (Left North)
     }
@@ -200,7 +246,7 @@ southCmd :: Command
 southCmd =
   defaultCommand
     { bindings = ["s", "south"],
-      description = "south: Go south",
+      description = "Go south",
       action = \serverState client _ player ->
         go serverState client player (Left South)
     }
@@ -209,7 +255,7 @@ eastCmd :: Command
 eastCmd =
   defaultCommand
     { bindings = ["e", "east"],
-      description = "east: Go east",
+      description = "Go east",
       action = \serverState client _ player ->
         go serverState client player (Left East)
     }
@@ -218,7 +264,7 @@ westCmd :: Command
 westCmd =
   defaultCommand
     { bindings = ["w", "west"],
-      description = "west: Go west",
+      description = "Go west",
       action = \serverState client _ player ->
         go serverState client player (Left West)
     }
@@ -226,13 +272,8 @@ westCmd =
 goCmd :: Command
 goCmd =
   defaultCommand
-    { bindings = ["g", "go"],
-      description =
-        init $
-          unlines
-            [ "go <<way>>: Go some way",
-              "  example: \"go door\" or \"go ladder\""
-            ],
+    { bindings = ["go"],
+      description = "Go some way (example: \"go door\" or \"go ladder\")",
       action = \serverState client args player ->
         go serverState client player (Right (unwords args))
     }
@@ -241,15 +282,15 @@ inventoryCmd :: Command
 inventoryCmd =
   defaultCommand
     { bindings = ["i", "inv", "inventory"],
-      description = "inventory: Show your inventory",
+      description = "Show your inventory",
       action = \_serverState client _ player -> inventory client player
     }
 
 takeCmd :: Command
 takeCmd =
   defaultCommand
-    { bindings = ["t", "take"],
-      description = "take: Take an item",
+    { bindings = ["t", "take", "get", "g"],
+      description = "Take an item",
       action = \serverState client args player ->
         takeItem serverState client player (unwords args)
     }
@@ -257,8 +298,8 @@ takeCmd =
 dropCmd :: Command
 dropCmd =
   defaultCommand
-    { bindings = ["d", "drop"],
-      description = "drop: Drop an item",
+    { bindings = ["d", "dr", "drop"],
+      description = "Drop an item",
       action = \serverState client args player ->
         dropItem serverState client player (unwords args)
     }
@@ -266,30 +307,56 @@ dropCmd =
 sayCmd :: Command
 sayCmd =
   defaultCommand
-    { bindings = ["say"],
-      description = "say: Say something",
+    { bindings = ["say", "\"", "\'"],
+      description = "Say something (also available with leading quotes)",
       action = \serverState _client args player ->
         say serverState player (unwords args)
+    }
+
+shoutCmd :: Command
+shoutCmd =
+  defaultCommand
+    { bindings = ["shout", "sh"],
+      description = "Shout something, so everyone can hear",
+      action = \serverState _client args player ->
+        shout serverState player (unwords args)
+    }
+
+whoCmd :: Command
+whoCmd =
+  defaultCommand
+    { bindings = ["who"],
+      description = "List everyone who is online",
+      action = \serverState client _args player ->
+        who serverState client player
+    }
+
+emoteCmd :: Command
+emoteCmd =
+  defaultCommand
+    { bindings = ["emote", ":"],
+      description = "Emote something",
+      action = \serverState _client args player ->
+        emote serverState player (unwords args)
     }
 
 helpCmd :: Command
 helpCmd =
   defaultCommand
     { bindings = ["h", "help", "?"],
-      description = "help: Show this help message",
+      description = "Show this help message",
       action = \_serverState client _ _ -> do
         writeClient client "Commands:"
         forM_ commands $ \cmd -> unless cmd.hide $ do
-          writeClient client cmd.description
-          writeClient client $
-            "  commands: " ++ List.intercalate ", " cmd.bindings
+          writeClient client $ "  * " ++ List.intercalate ", " cmd.bindings
+          writeClient client $ "    " ++ cmd.description
     }
 
 quitCmd :: Command
 quitCmd =
   defaultCommand
-    { bindings = ["q", "quit", "exit", "logout", "logoff", "lo"],
-      description = "quit: Quit the game",
+    { bindings = ["q", "quit", "exit", "logout"],
+      description = "Quit the game",
       action = \_serverState client _ _ -> writeClient client "Goodbye!",
       continue = False
     }
@@ -301,8 +368,13 @@ clientLoop ::
   IO ()
 clientLoop serverState client player = do
   cmdLine <- readClient client "> "
+  let fixedCmd = case cmdLine of
+        '"' : rest -> "say " ++ rest
+        '\'' : rest -> "say " ++ rest
+        ':' : rest -> "emote " ++ rest
+        other -> other
 
-  case words cmdLine of
+  case words fixedCmd of
     [] -> clientLoop serverState client player
     (cmd : args) -> case Map.lookup (map toLower cmd) boundCommands of
       Nothing -> do
@@ -344,7 +416,11 @@ look serverState client player targetName = do
               writeClient client $
                 "Could not find anything called " ++ targetName ++ "."
 
-lookRoom :: ServerState -> Client -> Node MUDSchema (DataNode "Player") -> Edgy MUDSchema ()
+lookRoom ::
+  ServerState ->
+  Client ->
+  Node MUDSchema (DataNode "Player") ->
+  Edgy MUDSchema ()
 lookRoom serverState client player = do
   room <- getRelated @"location" player
   writeClient client
@@ -501,8 +577,37 @@ say ::
   Node MUDSchema (DataNode "Player") ->
   String ->
   Edgy MUDSchema ()
-say serverState player message = do
+say serverState player message =
   announceToRoom serverState player (++ ": " ++ message)
+
+emote ::
+  ServerState ->
+  Node MUDSchema (DataNode "Player") ->
+  String ->
+  Edgy MUDSchema ()
+emote serverState player message =
+  announceToRoom serverState player (\n -> "* " ++ n ++ " " ++ message)
+
+shout ::
+  ServerState ->
+  Node MUDSchema ('DataNode "Player") ->
+  String ->
+  Edgy MUDSchema ()
+shout serverState player message =
+  announceToAll serverState player (++ " shouts: " ++ message)
+
+who ::
+  ServerState ->
+  Client ->
+  Node MUDSchema ('DataNode "Player") ->
+  Edgy MUDSchema ()
+who serverState client player = do
+  players <-
+    filter (/= player) . catMaybes
+      <$> ( traverse (liftSTM . readTVar . clientPlayer)
+              =<< getAllClients serverState
+          )
+  for_ players $ writeClient client <=< getAttribute @"name"
 
 goesBy ::
   ( HasAttribute MUDSchema nodeType "name" ("name" ::: String),
