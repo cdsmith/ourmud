@@ -9,7 +9,7 @@ extra-source-files: CHANGELOG.md
 
 executable ourmud
     main-is:          Main.hs
-    other-modules:    Model, Sample, Client
+    other-modules:    Model, Sample, Client, ServerState
     build-depends:    base,
                       binary,
                       containers,
