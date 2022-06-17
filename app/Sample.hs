@@ -29,6 +29,14 @@ bigBang = do
           "with angels surrounding her."
         ]
 
+  bellTower <-
+    newNode @MUDSchema @"Room" "The Bell Tower" $
+      unlines
+        [ "You are standing in the bell tower.  An old church bell",
+          "hangs in the center of the room.  A large window",
+          "opens out into the street."
+        ]
+
   doorToVestibule <-
     newNode @MUDSchema @"Exit"
       "Ornate Door"
@@ -48,6 +56,26 @@ bigBang = do
 
   addRelated @"exit" vestibule doorToNave
   addRelated @"destination" doorToNave nave
+
+  stairsUp <-
+    newNode @MUDSchema @"Exit"
+      "Twisting Staircase"
+      ["staircase, stairs"]
+      "A small twisting staircase leads upward."
+      (Just Up)
+
+  addRelated @"exit" vestibule stairsUp
+  addRelated @"destination" stairsUp bellTower
+
+  stairsDown <-
+    newNode @MUDSchema @"Exit"
+      "Twisting Staircase"
+      ["staircase, stairs"]
+      "A small twisting staircase leads downward."
+      (Just Down)
+
+  addRelated @"exit" bellTower stairsDown
+  addRelated @"destination" stairsDown vestibule
 
   crystal <-
     newNode @MUDSchema @"Item"

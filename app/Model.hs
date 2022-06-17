@@ -8,7 +8,8 @@ import Data.Binary
 import Edgy
 import GHC.Generics (Generic)
 
-data Direction = North | South | East | West deriving (Eq, Show, Generic)
+data Direction = North | South | East | West | Up | Down
+  deriving (Eq, Show, Generic)
 
 instance Binary Direction
 

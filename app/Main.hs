@@ -207,6 +207,8 @@ commands =
     southCmd,
     eastCmd,
     westCmd,
+    upCmd,
+    downCmd,
     goCmd,
     inventoryCmd,
     takeCmd,
@@ -267,6 +269,24 @@ westCmd =
       description = "Go west",
       action = \serverState client _ player ->
         go serverState client player (Left West)
+    }
+
+upCmd :: Command
+upCmd =
+  defaultCommand
+    { bindings = ["u", "up"],
+      description = "Go up",
+      action = \serverState client _ player ->
+        go serverState client player (Left Up)
+    }
+
+downCmd :: Command
+downCmd =
+  defaultCommand
+    { bindings = ["d", "down"],
+      description = "Go down",
+      action = \serverState client _ player ->
+        go serverState client player (Left Down)
     }
 
 goCmd :: Command
@@ -434,7 +454,7 @@ lookRoom serverState client player = do
           =<< ( \n ->
                   "You can go "
                     ++ map toLower (show dir)
-                    ++ " to "
+                    ++ " via "
                     ++ n
                     ++ "."
               )
