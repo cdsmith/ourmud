@@ -1,7 +1,3 @@
 [submodule "edgy"]
     path = third_party/edgy
     url = git@github.com:cdsmith/edgy.git
-
-[submodule "TCache"]
-    path = third_party/TCache
-    url = git@github.com:cdsmith/TCache.git

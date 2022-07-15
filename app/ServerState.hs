@@ -14,15 +14,16 @@ import Control.Monad (unless)
 import Control.Monad.STM.Class (MonadSTM, liftSTM)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
-import Edgy (Node, NodeType (..))
+import Edgy (DB, Node, NodeType (..))
 import Model (MUDSchema)
 
 data ServerState = ServerState
-  { playersOnline :: TVar (Map (Node MUDSchema (DataNode "Player")) Client)
+  { edgyDB :: DB,
+    playersOnline :: TVar (Map (Node MUDSchema (DataNode "Player")) Client)
   }
 
-newServerState :: IO ServerState
-newServerState = ServerState <$> newTVarIO mempty
+newServerState :: DB -> IO ServerState
+newServerState db = ServerState db <$> newTVarIO mempty
 
 withClient ::
   ServerState ->

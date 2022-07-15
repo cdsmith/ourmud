@@ -27,13 +27,13 @@ import qualified Data.List as List
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
-import Data.TCache (atomicallySync)
 import Edgy
 import Model
 import Network.Socket
 import Sample
 import ServerState
   ( ServerState,
+    edgyDB,
     getAllClients,
     getPlayerClient,
     isPlayerOnline,
@@ -44,18 +44,19 @@ import System.IO
 
 main :: IO ()
 main = do
-  atomicallySync $
-    runEdgy @MUDSchema $ do
+  db <- openDB =<< filePersister ".db"
+  atomically $
+    runEdgy @MUDSchema db $ do
       universe <- getUniverse
       newWorld <- null <$> getRelated @"Room" universe
       when newWorld $ bigBang >> return ()
+  runServer db
+  closeDB db
 
-  runServer
-
-runServer :: IO ()
-runServer = do
+runServer :: DB -> IO ()
+runServer db = do
   putStrLn "Starting server..."
-  serverState <- newServerState
+  serverState <- newServerState db
   sock <- socket AF_INET Stream 0
   setSocketOption sock ReuseAddr 1
   bind sock (SockAddrInet 4242 0)
@@ -77,17 +78,17 @@ runClient serverState client = do
   writeClient client "Welcome to Shae and Chris's MUD!"
   writeClient client "Type 'help' for a list of commands."
   writeClient client ""
-  login client >>= \case
+  login serverState client >>= \case
     Just player -> do
       conflict <- withClient serverState player client $ do
         atomically $
-          runEdgy $ do
+          runEdgy (edgyDB serverState) $ do
             liftSTM $ writeTVar (clientPlayer client) (Just player)
             announceToRoom serverState player (++ " magically appears.")
             look serverState client player ""
         clientLoop serverState client player
         atomically $
-          runEdgy $ do
+          runEdgy (edgyDB serverState) $ do
             announceToRoom serverState player (++ " magically vanishes.")
       when conflict $ do
         atomically $ writeClient client "Your character is already logged in."
@@ -120,14 +121,17 @@ announceToAll serverState player message = do
       =<< getAllClients serverState
   for_ clients $ \client -> writeClient client (message name)
 
-login :: Client -> IO (Maybe (Node MUDSchema (DataNode "Player")))
-login client = do
+login ::
+  ServerState ->
+  Client ->
+  IO (Maybe (Node MUDSchema (DataNode "Player")))
+login serverState client = do
   name <- readClient client "Name (or \"new\"): "
   case map toLower name of
     "new" -> do
       realName <- readClient client "Name: "
       alreadyExists <- atomically $
-        runEdgy $ do
+        runEdgy (edgyDB serverState) $ do
           universe <- getUniverse
           getRelated @"Player" universe >>= filterM (named realName) >>= \case
             [] -> return False
@@ -135,18 +139,18 @@ login client = do
       case alreadyExists of
         True -> do
           writeClient client "That name is already taken."
-          login client
+          login serverState client
         False -> do
           password <- readClient client "Password: "
           confirm <- readClient client "Confirm Password: "
           case password == confirm of
             False -> do
               writeClient client "Passwords do not match."
-              login client
+              login serverState client
             True -> do
               desc <- readClient client "Description: "
-              atomicallySync $
-                runEdgy $ do
+              atomically $
+                runEdgy (edgyDB serverState) $ do
                   player <- newNode @MUDSchema @"Player" realName password desc
                   room <- getRelated @"start" =<< getUniverse
                   setRelated @"location" player room
@@ -155,7 +159,7 @@ login client = do
     _ -> do
       password <- readClient client "Password: "
       atomically $
-        runEdgy $ do
+        runEdgy (edgyDB serverState) $ do
           universe <- getUniverse
           players <- getRelated @"Player" universe
           matches <- filterM (fmap (== name) . getAttribute @"name") players
@@ -401,7 +405,9 @@ clientLoop serverState client player = do
         atomically $ writeClient client "Unknown command"
         clientLoop serverState client player
       Just command -> do
-        atomicallySync $ runEdgy $ action command serverState client args player
+        atomically $
+          runEdgy (edgyDB serverState) $
+            action command serverState client args player
         when (continue command) (clientLoop serverState client player)
 
 look ::

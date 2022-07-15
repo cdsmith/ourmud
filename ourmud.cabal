@@ -18,7 +18,6 @@ executable ourmud
                       monad-stm,
                       network,
                       stm,
-                      TCache,
     hs-source-dirs:   app
     default-language: Haskell2010
     ghc-options:      -Wall
