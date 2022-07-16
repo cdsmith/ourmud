@@ -322,7 +322,7 @@ takeCmd =
 dropCmd :: Command
 dropCmd =
   defaultCommand
-    { bindings = ["d", "dr", "drop"],
+    { bindings = ["dr", "drop"],
       description = "Drop an item",
       action = \serverState client args player ->
         dropItem serverState client player (unwords args)
