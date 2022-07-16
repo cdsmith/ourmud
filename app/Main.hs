@@ -44,14 +44,14 @@ import System.IO
 
 main :: IO ()
 main = do
-  db <- openDB =<< filePersister ".db"
-  atomically $
-    runEdgy @MUDSchema db $ do
-      universe <- getUniverse
-      newWorld <- null <$> getRelated @"Room" universe
-      when newWorld $ bigBang >> return ()
-  runServer db
-  closeDB db
+  persister <- filePersister ".db"
+  withDB persister $ \db -> do
+    atomically $
+      runEdgy @MUDSchema db $ do
+        universe <- getUniverse
+        newWorld <- null <$> getRelated @"Room" universe
+        when newWorld $ bigBang >> return ()
+    runServer db
 
 runServer :: DB -> IO ()
 runServer db = do
