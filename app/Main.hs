@@ -44,8 +44,8 @@ import System.IO
 
 main :: IO ()
 main = do
-  persister <- filePersister ".db"
-  withDB persister $ \db -> do
+  persistence <- filePersistence ".db"
+  withDB persistence $ \db -> do
     atomically $
       runEdgy @MUDSchema db $ do
         universe <- getUniverse
